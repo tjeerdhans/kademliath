@@ -2,7 +2,18 @@
 
 An implementation of the Kademlia DHT (distributed hash table) protocol in C#. 
 
+## Components
 
+ - Core - the protocol
+ - Node - a console app that starts a node and optionally a master node (command line arg '-master')
+ - Registry - web api that provides and saves node addresses in it's memorycache.
+ 
+## Getting started
+
+1. Start an instance of the Registry (starts at https://localhost:5001/nodes and http://localhost:5000/nodes)
+2. Run a node
+3. Run more nodes
+4. Profit
 
 ## Attribution and license
 I found the code on which I based this more than five years ago. The name of the project was 'Daylight' (I think).
