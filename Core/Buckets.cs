@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using Core;
 
 namespace Kademliath.Core
 {
@@ -11,11 +10,11 @@ namespace Kademliath.Core
     /// </summary>
     public class Buckets
     {
-        public const int BucketSize = 20; // "k" in the spec
+        public const int BucketSize = 20; // "k" in the protocol specification
         private const int NumBuckets = Id.IdLengthInBits;
 
         private readonly List<List<Contact>> _buckets;
-        private readonly List<DateTime> _accessTimes; // last bucket write or explicit touch
+        private readonly List<DateTime> _lastAccessedTimestamps; // last bucket write or explicit touch
         private readonly Id _ourId;
 
         /// <summary>
@@ -26,13 +25,13 @@ namespace Kademliath.Core
         {
             _ourId = ourId;
             _buckets = new List<List<Contact>>(NumBuckets);
-            _accessTimes = new List<DateTime>();
+            _lastAccessedTimestamps = new List<DateTime>();
 
             // Set up each bucket
             for (var i = 0; i < NumBuckets; i++)
             {
                 _buckets.Add(new List<Contact>(BucketSize));
-                _accessTimes.Add(default(DateTime));
+                _lastAccessedTimestamps.Add(default(DateTime));
             }
         }
 
@@ -43,17 +42,17 @@ namespace Kademliath.Core
         /// <returns></returns>
         public Contact Blocker(Id toAdd)
         {
-            int bucket = BucketFor(toAdd);
-            lock (_buckets[bucket])
+            var bucketIndex = GetBucketIndex(toAdd);
+            lock (_buckets[bucketIndex])
             {
                 // Nobody can move it while we're getting it
-                if (_buckets[bucket].Count < BucketSize)
+                if (_buckets[bucketIndex].Count < BucketSize)
                 {
                     return null;
                 }
                 else
                 {
-                    return _buckets[bucket][0];
+                    return _buckets[bucketIndex][0];
                 }
             }
         }
@@ -77,14 +76,15 @@ namespace Kademliath.Core
         {
             if (toAdd == null)
             {
-                return; // Don't be silly.
+                throw new Exception($"Can't put a null Contact into a bucket.");
+                //return; // Don't be silly.
             }
 
-            int bucket = BucketFor(toAdd.NodeId);
-            _buckets[bucket].Add(toAdd); // No lock: people can read while we do this.
-            lock (_accessTimes)
+            var bucketIndex = GetBucketIndex(toAdd.NodeId);
+            _buckets[bucketIndex].Add(toAdd); // No lock: people can read while we do this.
+            lock (_lastAccessedTimestamps)
             {
-                _accessTimes[bucket] = DateTime.Now;
+                _lastAccessedTimestamps[bucketIndex] = DateTime.Now;
             }
         }
 
@@ -95,9 +95,9 @@ namespace Kademliath.Core
         /// <param name="key"></param>
         public void Touch(Id key)
         {
-            lock (_accessTimes)
+            lock (_lastAccessedTimestamps)
             {
-                _accessTimes[BucketFor(key)] = DateTime.Now;
+                _lastAccessedTimestamps[GetBucketIndex(key)] = DateTime.Now;
             }
         }
 
@@ -108,7 +108,7 @@ namespace Kademliath.Core
         /// <returns></returns>
         public Contact Get(Id toGet)
         {
-            int bucket = BucketFor(toGet);
+            int bucket = GetBucketIndex(toGet);
             lock (_buckets[bucket])
             {
                 // Nobody can move it while we're getting it
@@ -148,7 +148,7 @@ namespace Kademliath.Core
         public void Promote(Id toPromote)
         {
             Contact promotee = Get(toPromote);
-            int bucket = BucketFor(toPromote);
+            int bucket = GetBucketIndex(toPromote);
 
             lock (_buckets[bucket])
             {
@@ -157,9 +157,9 @@ namespace Kademliath.Core
                 _buckets[bucket].Add(promotee); // And put in at end
             }
 
-            lock (_accessTimes)
+            lock (_lastAccessedTimestamps)
             {
-                _accessTimes[bucket] = DateTime.Now;
+                _lastAccessedTimestamps[bucket] = DateTime.Now;
             }
         }
 
@@ -169,7 +169,7 @@ namespace Kademliath.Core
         /// <param name="toRemove"></param>
         public void Remove(Id toRemove)
         {
-            int bucket = BucketFor(toRemove);
+            int bucket = GetBucketIndex(toRemove);
             lock (_buckets[bucket])
             {
                 // Nobody can move it while we're removing it
@@ -259,7 +259,7 @@ namespace Kademliath.Core
         /// <returns></returns>
         public int NodesToKey(Id key)
         {
-            int j = BucketFor(key);
+            int j = GetBucketIndex(key);
 
             // Count nodes in earlier buckets
             int inEarlierBuckets = 0;
@@ -291,9 +291,9 @@ namespace Kademliath.Core
         /// </summary>
         /// <param name="id"></param>
         /// <returns></returns>
-        private int BucketFor(Id id)
+        private int GetBucketIndex(Id id)
         {
-            return (_ourId.DifferingBit(id));
+            return _ourId.DifferingBit(id);
         }
 
         /// <summary>
@@ -304,7 +304,7 @@ namespace Kademliath.Core
         private Id ForBucket(int bucket)
         {
             // The same as ours, but differ at the given bit and be random past it.
-            return (_ourId.RandomizeBeyond(bucket));
+            return _ourId.RandomizeBeyond(bucket);
         }
 
         /// <summary>
@@ -342,11 +342,11 @@ namespace Kademliath.Core
         public IList<Id> IdsForRefresh(TimeSpan tooOld)
         {
             List<Id> toReturn = new List<Id>();
-            lock (_accessTimes)
+            lock (_lastAccessedTimestamps)
             {
                 for (int i = 0; i < NumBuckets; i++)
                 {
-                    if (DateTime.Now > _accessTimes[i].Add(tooOld))
+                    if (DateTime.Now > _lastAccessedTimestamps[i].Add(tooOld))
                     {
                         // Bucket is old
                         toReturn.Add(_ourId.RandomizeBeyond(i)); // Make a random Id in the bucket to look up

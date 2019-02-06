@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
@@ -6,7 +7,6 @@ using System.Net.Sockets;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Formatters.Binary;
 using System.Threading;
-using Core;
 using Kademliath.Core.Messages;
 
 namespace Kademliath.Core
@@ -21,50 +21,37 @@ namespace Kademliath.Core
 
         // Network State
         private readonly Buckets _buckets;
-        private readonly Thread _bucketMinderThread; // Handle updates to cache
+        private Thread _bucketMinderThread; // Handle updates to cache
         private const int CheckInterval = 1;
-        private readonly List<Contact> _contactQueue; // Add contacts here to be considered for caching
+
+        private readonly ConcurrentQueue<Contact> _contactQueue; // Add contacts here to be considered for caching
         private const int MaxQueueLength = 10;
 
         // Response cache
         // We want to be able to synchronously wait for responses, so we have other threads put them in this cache.
         // We also need to discard old ones.
-        private struct CachedResponse
-        {
-            public Response Response;
-            public DateTime Arrived;
-        }
-
         private readonly SortedList<Id, CachedResponse> _responseCache;
         private readonly TimeSpan _maxSyncWait = TimeSpan.FromMilliseconds(500);
 
         private readonly LocalStorage _storage; // Keep our key/value pairs
 
-        private readonly SortedList<Id, DateTime>
-            _acceptedStoreRequests; // Store a list of what put requests we actually accepted while waiting for data.
-
-        // The list of put requests we sent is more complex
-        // We need to keep the data and timestamp, but don't want to insert it in our storage.
-        // So we keep it in a cache, and discard it if it gets too old.
-        private struct OutstandingStoreRequest
-        {
-            public Id Key;
-            public object Val;
-            public DateTime Publication;
-            public DateTime Sent;
-        }
+        // Store a list of what put requests we actually accepted while waiting for data.
+        private readonly SortedList<Id, DateTime> _acceptedStoreRequests;
 
         private readonly SortedList<Id, OutstandingStoreRequest> _sentStoreRequests;
 
         // We need a thread to go through and expire all these things
-        private readonly Thread _authMinder;
+        private Thread _conversationMinderThread;
         private static readonly TimeSpan MaxCacheTime = new TimeSpan(0, 0, 30);
 
         // How much clock skew do we tolerate?
         private readonly TimeSpan _maxClockSkew = new TimeSpan(1, 0, 0);
 
         // Kademlia config
-        private const int Parallelism = 3; // Number of requests to run at once for iterative operations.
+        private const int
+            Parallelism =
+                3; // 'alpha' in the protocol specification. Number of requests to run at once for iterative operations.
+
         private const int NodesToFind = Buckets.BucketSize; // = k = bucket size
 
         private static readonly TimeSpan
@@ -81,18 +68,16 @@ namespace Kademliath.Core
 
         // How often do we run high-level maintenance (expiration, etc.)
         private static readonly TimeSpan MaintenanceInterval = new TimeSpan(0, 1, 0);
-        private readonly Thread _maintenanceMinder;
+        private Thread _maintenanceMinderThread;
 
         // Network IO
-        private readonly UdpClient _udpClient;
-
-        //private Socket client
-        private readonly Thread _clientMinder;
+        private UdpClient _udpClient;
+        private readonly int _port;
+        private Thread _udpClientMinderThread;
 
         // Events
         public event MessageEventHandler<Message> GotMessage;
         public event MessageEventHandler<Response> GotResponse;
-
         public event MessageEventHandler<Ping> GotPing;
         public event MessageEventHandler<Pong> GotPong;
         public event MessageEventHandler<FindNode> GotFindNode;
@@ -129,9 +114,9 @@ namespace Kademliath.Core
 
             // Wait for each thread to stop. 
             _bucketMinderThread.Join();
-            _authMinder.Join();
-            _clientMinder.Join();
-            _maintenanceMinder.Join();
+            _conversationMinderThread.Join();
+            _udpClientMinderThread.Join();
+            _maintenanceMinderThread.Join();
         }
 
         #endregion
@@ -176,23 +161,51 @@ namespace Kademliath.Core
         {
             // Set up all our data
             NodeId = id;
+            _port = port;
             _buckets = new Buckets(NodeId);
-            _contactQueue = new List<Contact>();
+            _contactQueue = new ConcurrentQueue<Contact>();
             _storage = new LocalStorage();
             _acceptedStoreRequests = new SortedList<Id, DateTime>();
             _sentStoreRequests = new SortedList<Id, OutstandingStoreRequest>();
             _responseCache = new SortedList<Id, CachedResponse>();
             _lastReplication = default(DateTime);
 
-            // Start minding the buckets
+            WireUpEventHandlers();
+
+            Connect();
+            
+            StartWorkerThreads();          
+        }
+
+        private void Connect()
+        {
+            _udpClient = new UdpClient();
+
+            // create a socket that listens on all addresses (IPv4 _and_ IPv6)
+            // http://blogs.msdn.com/b/malarch/archive/2005/11/18/494769.aspx
+            Socket sock = new Socket(AddressFamily.InterNetworkV6, SocketType.Dgram, ProtocolType.Udp);
+            sock.SetSocketOption(SocketOptionLevel.IPv6, (SocketOptionName) 27, 0);
+            sock.Bind(new IPEndPoint(IPAddress.IPv6Any, _port));
+            _udpClient.Client = sock;
+        }
+
+        private void StartWorkerThreads()
+        {
             _bucketMinderThread = new Thread(MindBuckets) {IsBackground = true};
             _bucketMinderThread.Start();
 
-            // Start minding the conversation state caches
-            _authMinder = new Thread(MindCaches) {IsBackground = true};
-            _authMinder.Start();
+            _conversationMinderThread = new Thread(MindCaches) {IsBackground = true};
+            _conversationMinderThread.Start();
 
-            // Set all the event handlers
+            _udpClientMinderThread = new Thread(MindUdpClient) {IsBackground = true};
+            _udpClientMinderThread.Start();
+
+            _maintenanceMinderThread = new Thread(MindMaintenance) {IsBackground = true};
+            _maintenanceMinderThread.Start();
+        }
+
+        private void WireUpEventHandlers()
+        {
             GotMessage += HandleMessage;
             GotResponse += CacheResponse;
 
@@ -202,47 +215,19 @@ namespace Kademliath.Core
             GotStoreQuery += HandleStoreQuery;
             GotStoreResponse += HandleStoreResponse;
             GotStoreData += HandleStoreData;
-
-            // Connect
-            _udpClient = new UdpClient();
-
-            // create a socket that listens on all addresses (IPv4 _and_ IPv6)
-            // http://blogs.msdn.com/b/malarch/archive/2005/11/18/494769.aspx
-            Socket sock = new Socket(AddressFamily.InterNetworkV6, SocketType.Dgram, ProtocolType.Udp);
-            sock.SetSocketOption(SocketOptionLevel.IPv6, (SocketOptionName) 27, 0);
-            sock.Bind(new IPEndPoint(IPAddress.IPv6Any, port));
-            _udpClient.Client = sock;
-
-            _clientMinder = new Thread(MindClient);
-            _clientMinder.IsBackground = true;
-            _clientMinder.Start();
-
-            _maintenanceMinder = new Thread(MindMaintenance);
-            _maintenanceMinder.IsBackground = true;
-            _maintenanceMinder.Start();
-        }
-
-        /// <summary>
-        /// Bootstrap by pinging a local node on the specified port.
-        /// </summary>
-        /// <param name="localPort"></param>
-        /// <returns></returns>
-        public bool Bootstrap(int localPort)
-        {
-            return Bootstrap(new IPEndPoint(IPAddress.Loopback, localPort));
         }
 
         /// <summary>
         /// Bootstrap the node by having it ping another node. Returns true if we get a response.
         /// </summary>
-        /// <param name="other"></param>
+        /// <param name="targetEndPoint"></param>
         /// <returns>True if bootstrapping was successful.</returns>
-        public bool Bootstrap(IPEndPoint other)
+        public bool Bootstrap(IPEndPoint targetEndPoint)
         {
             // Send a blocking ping.
-            bool worked = SyncPing(other);
-            Thread.Sleep(CheckInterval); // Wait for them to notice us
-            return worked;
+            var success = SyncPing(targetEndPoint);
+            //Thread.Sleep(CheckInterval); // Wait for them to notice us
+            return success;
         }
 
         /// <summary>
@@ -254,7 +239,7 @@ namespace Kademliath.Core
         public bool JoinNetwork()
         {
             Log("Joining");
-            IList<Contact> found = IterativeFindNode(NodeId);
+            var found = IterativeFindNode(NodeId);
             if (found == null)
             {
                 Log("Found <null list>");
@@ -269,7 +254,7 @@ namespace Kademliath.Core
 
 
             // Should get very nearly all of them
-            // RefreshBuckets(); // Put this off until first maintainance.
+            // RefreshBuckets(); // Put this off until first maintenance.
             if (_buckets.GetCount() > 0)
             {
                 Log("Joined");
@@ -663,20 +648,20 @@ namespace Kademliath.Core
         /// <summary>
         /// Send a ping and wait for a response or a timeout.
         /// </summary>
-        /// <param name="toPing"></param>
+        /// <param name="targetEndPoint"></param>
         /// <returns>true on a response, false otherwise</returns>
-        private bool SyncPing(IPEndPoint toPing)
+        private bool SyncPing(IPEndPoint targetEndPoint)
         {
             // Send message
-            var called = DateTime.Now;
+            var now = DateTime.Now;
             var ping = new Ping(NodeId);
-            SendMessage(toPing, ping);
+            SendMessage(targetEndPoint, ping);
 
-            while (DateTime.Now < called.Add(_maxSyncWait))
+            while (DateTime.Now < now.Add(_maxSyncWait))
             {
                 // If we got a response, send it up
-                Pong resp = GetCachedResponse<Pong>(ping.ConversationId);
-                if (resp != null)
+                var pong = GetCachedResponse<Pong>(ping.ConversationId);
+                if (pong != null)
                 {
                     return true; // They replied in time
                 }
@@ -917,7 +902,7 @@ namespace Kademliath.Core
         /// <summary>
         /// Handle incoming packets
         /// </summary>
-        private void MindClient()
+        private void MindUdpClient()
         {
             while (_threadsRun)
             {
@@ -925,15 +910,15 @@ namespace Kademliath.Core
                 {
                     // Get a datagram
                     var sender = new IPEndPoint(IPAddress.Any, 0); // Get from anyone
-                    byte[] data = _udpClient.Receive(ref sender);
+                    var data = _udpClient.Receive(ref sender);
 
                     // Decode the message
-                    MemoryStream ms = new MemoryStream(data);
-                    IFormatter decoder = new BinaryFormatter();
+                    var memoryStream = new MemoryStream(data);
+                    var binaryFormatter = new BinaryFormatter();
                     object incomingMessage = null;
                     try
                     {
-                        incomingMessage = decoder.Deserialize(ms);
+                        incomingMessage = binaryFormatter.Deserialize(memoryStream);
                     }
                     catch (Exception)
                     {
@@ -1032,21 +1017,17 @@ namespace Kademliath.Core
         /// Call this whenever we see a contact.
         /// We add the contact to the queue to be cached.
         /// </summary>
-        /// <param name="seen"></param>
-        private void SawContact(Contact seen)
+        /// <param name="contact"></param>
+        private void SawContact(Contact contact)
         {
-            if (seen.NodeId == NodeId)
+            if (contact.NodeId == NodeId)
             {
                 return; // NEVER insert ourselves!
             }
 
-            lock (_contactQueue)
+            if (_contactQueue.Count < MaxQueueLength)
             {
-                if (_contactQueue.Count < MaxQueueLength)
-                {
-                    // Don't let it get too long
-                    _contactQueue.Add(seen);
-                }
+                _contactQueue.Enqueue(contact);
             }
         }
 
@@ -1058,17 +1039,16 @@ namespace Kademliath.Core
             while (_threadsRun)
             {
                 // Handle all the queued contacts
-                while (_contactQueue.Count > 0)
+                while (!_contactQueue.IsEmpty)
                 {
-                    Contact applicant;
-                    lock (_contactQueue)
+                    // Only lock when getting stuff.
+                    if (!_contactQueue.TryDequeue(out var applicant))
                     {
-                        // Only lock when getting stuff.
-                        applicant = _contactQueue[0];
-                        _contactQueue.RemoveAt(0);
+                        Thread.Sleep(CheckInterval);
+                        continue;
                     }
 
-                    //Log("Processing contact for " + applicant.GetID().ToString());
+                    Log("Processing contact for " + applicant.NodeId);
 
                     // If we already know about them
                     if (_buckets.Contains(applicant.NodeId))
@@ -1086,11 +1066,11 @@ namespace Kademliath.Core
                             _buckets.Promote(applicant.NodeId);
                         }
 
-                        continue;
+                        continue; // next in queue
                     }
 
                     // If we can fit them, do so
-                    Contact blocker = _buckets.Blocker(applicant.NodeId);
+                    var blocker = _buckets.Blocker(applicant.NodeId);
                     if (blocker == null)
                     {
                         _buckets.Put(applicant);
@@ -1110,8 +1090,6 @@ namespace Kademliath.Core
                             Log("Chose blocker");
                         }
                     }
-
-                    //Log(contactCache.ToString());
                 }
 
                 // Wait for more

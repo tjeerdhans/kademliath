@@ -4,9 +4,9 @@ using System.Linq;
 using System.Net.NetworkInformation;
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Web;
-using Core;
 
 namespace Kademliath.Core
 {
@@ -312,7 +312,7 @@ namespace Kademliath.Core
         /// <returns></returns>
         public string ToPathString()
         {
-            var result = HttpUtility.UrlEncode(_data);
+            var result = Convert.ToBase64String(_data);
 
             foreach (var c in Path.GetInvalidFileNameChars().Union(Path.GetInvalidFileNameChars()))
             {

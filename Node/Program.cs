@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
-using Core;
 using Kademliath.Core;
 
 namespace Kademliath.Node
@@ -31,7 +30,7 @@ namespace Kademliath.Node
                 {
                     // store some data
                     var data = new Dictionary<string, string>();
-                    for (int i = 0; i < 1000; i++)
+                    for (int i = 0; i < 10; i++)
                     {
                         var key = Guid.NewGuid().ToString();
                         var value = Guid.NewGuid().ToString();

@@ -1,8 +1,8 @@
 using System;
 using System.Net;
-using Kademliath.Core;
+using System.Runtime.Serialization.Formatters.Binary;
 
-namespace Core
+namespace Kademliath.Core
 {
     /// <summary>
     /// Represents the information needed to contact another node.
@@ -12,6 +12,10 @@ namespace Core
     {
         public Id NodeId { get; }
 
+        /// <summary>
+        /// The NodeEndPoint is a property that constructs and deconstructs an <see cref="IPEndPoint"/>
+        /// because that type can't be serialized by <see cref="BinaryFormatter"/> in dotnet core.
+        /// </summary>
         public IPEndPoint NodeEndPoint
         {
             get => new IPEndPoint(IPAddress.Parse(IpAddress), Port);
@@ -24,13 +28,6 @@ namespace Core
 
         public string IpAddress { get; private set; }
         public int Port { get; private set; }
-
-        public Contact(Id id, string ipAddress, int port)
-        {
-            NodeId = id;
-            IpAddress = ipAddress;
-            Port = port;
-        }
 
         public Contact(Id id, IPEndPoint ipEndPoint)
         {

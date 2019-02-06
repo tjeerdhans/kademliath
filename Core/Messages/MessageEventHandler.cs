@@ -1,5 +1,3 @@
-using Core;
-
 namespace Kademliath.Core.Messages
 {
     /// <summary>
