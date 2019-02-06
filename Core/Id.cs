@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 using System.Linq;
 using System.Net.NetworkInformation;
 using System.Reflection;
@@ -311,7 +312,14 @@ namespace Kademliath.Core
         /// <returns></returns>
         public string ToPathString()
         {
-            return HttpUtility.UrlEncode(_data);
+            var result = HttpUtility.UrlEncode(_data);
+
+            foreach (var c in Path.GetInvalidFileNameChars().Union(Path.GetInvalidFileNameChars()))
+            {
+                result = result.Replace(c, '-');
+            }
+
+            return result;
         }
 
         public int CompareTo(object obj)

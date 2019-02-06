@@ -20,8 +20,8 @@ namespace Kademliath.Core
         public Id NodeId { get; }
 
         // Network State
-        private readonly Bucket _contactCache;
-        private readonly Thread _bucketMinder; // Handle updates to cache
+        private readonly Buckets _buckets;
+        private readonly Thread _bucketMinderThread; // Handle updates to cache
         private const int CheckInterval = 1;
         private readonly List<Contact> _contactQueue; // Add contacts here to be considered for caching
         private const int MaxQueueLength = 10;
@@ -36,7 +36,7 @@ namespace Kademliath.Core
         }
 
         private readonly SortedList<Id, CachedResponse> _responseCache;
-        private readonly TimeSpan _maxSyncWait = new TimeSpan(5000000); // 500 ms in ticks
+        private readonly TimeSpan _maxSyncWait = TimeSpan.FromMilliseconds(500);
 
         private readonly LocalStorage _storage; // Keep our key/value pairs
 
@@ -65,7 +65,7 @@ namespace Kademliath.Core
 
         // Kademlia config
         private const int Parallelism = 3; // Number of requests to run at once for iterative operations.
-        private const int NodesToFind = Bucket.BucketSize; // = k = bucket size
+        private const int NodesToFind = Buckets.BucketSize; // = k = bucket size
 
         private static readonly TimeSpan
             ExpireTime = new TimeSpan(24, 0, 0); // Time since original publication to expire a value
@@ -80,17 +80,16 @@ namespace Kademliath.Core
         //private static TimeSpan _republishTime = new TimeSpan(23, 0, 0); // Interval at which we should re-insert our values with new publication times
 
         // How often do we run high-level maintenance (expiration, etc.)
-        private static readonly TimeSpan MaintenanceInterval = new TimeSpan(0, 10, 0);
+        private static readonly TimeSpan MaintenanceInterval = new TimeSpan(0, 1, 0);
         private readonly Thread _maintenanceMinder;
 
         // Network IO
         private readonly UdpClient _udpClient;
 
-        //private Socket client;
+        //private Socket client
         private readonly Thread _clientMinder;
 
         // Events
-        // Messages are strongly typed. Hooray!
         public event MessageEventHandler<Message> GotMessage;
         public event MessageEventHandler<Response> GotResponse;
 
@@ -129,7 +128,7 @@ namespace Kademliath.Core
             _threadsRun = false;
 
             // Wait for each thread to stop. 
-            _bucketMinder.Join();
+            _bucketMinderThread.Join();
             _authMinder.Join();
             _clientMinder.Join();
             _maintenanceMinder.Join();
@@ -177,7 +176,7 @@ namespace Kademliath.Core
         {
             // Set up all our data
             NodeId = id;
-            _contactCache = new Bucket(NodeId);
+            _buckets = new Buckets(NodeId);
             _contactQueue = new List<Contact>();
             _storage = new LocalStorage();
             _acceptedStoreRequests = new SortedList<Id, DateTime>();
@@ -186,8 +185,8 @@ namespace Kademliath.Core
             _lastReplication = default(DateTime);
 
             // Start minding the buckets
-            _bucketMinder = new Thread(MindBuckets) {IsBackground = true};
-            _bucketMinder.Start();
+            _bucketMinderThread = new Thread(MindBuckets) {IsBackground = true};
+            _bucketMinderThread.Start();
 
             // Start minding the conversation state caches
             _authMinder = new Thread(MindCaches) {IsBackground = true};
@@ -218,7 +217,6 @@ namespace Kademliath.Core
             _clientMinder.IsBackground = true;
             _clientMinder.Start();
 
-            // Start maintainance
             _maintenanceMinder = new Thread(MindMaintenance);
             _maintenanceMinder.IsBackground = true;
             _maintenanceMinder.Start();
@@ -272,7 +270,7 @@ namespace Kademliath.Core
 
             // Should get very nearly all of them
             // RefreshBuckets(); // Put this off until first maintainance.
-            if (_contactCache.GetCount() > 0)
+            if (_buckets.GetCount() > 0)
             {
                 Log("Joined");
                 return true;
@@ -325,7 +323,7 @@ namespace Kademliath.Core
         {
             if (_storage.ContainsKey(key))
             {
-                // Check the local datastore first.
+                // Check the local storage first.
                 return _storage.Get(key);
             }
 
@@ -375,7 +373,7 @@ namespace Kademliath.Core
                             }
                             catch (Exception ex)
                             {
-                                Log("Could not replicate " + key + "/" + valHash + ": " + ex);
+                                Log($"Could not replicate {key}/{_storage.Get(key, valHash)}/{valHash}: {ex}");
                             }
                         }
                     }
@@ -395,7 +393,7 @@ namespace Kademliath.Core
         private void RefreshBuckets()
         {
             Log("Refreshing buckets");
-            IList<Id> toLookup = _contactCache.IdsForRefresh(RefreshTime);
+            IList<Id> toLookup = _buckets.IdsForRefresh(RefreshTime);
             foreach (Id key in toLookup)
             {
                 IterativeFindNode(key);
@@ -464,13 +462,13 @@ namespace Kademliath.Core
             // Log the lookup
             if (target != NodeId)
             {
-                _contactCache.Touch(target);
+                _buckets.Touch(target);
             }
 
             // Get the alpha closest nodes to the target
             // TODO: Should actually pick from a certain bucket.
             SortedList<Id, Contact> shortlist = new SortedList<Id, Contact>();
-            foreach (Contact c in _contactCache.CloseContacts(Parallelism, target, null))
+            foreach (Contact c in _buckets.CloseContacts(Parallelism, target, null))
             {
                 shortlist.Add(c.NodeId, c);
             }
@@ -698,10 +696,10 @@ namespace Kademliath.Core
         /// Record every contact we see in our cache, if applicable. 
         /// </summary>
         /// <param name="sender"></param>
-        /// <param name="msg"></param>
-        private void HandleMessage(Contact sender, Message msg)
+        /// <param name="message"></param>
+        private void HandleMessage(Contact sender, Message message)
         {
-            Log($"got {msg.GetName()} from {msg.SenderId}");
+            Log($"got {message.GetName()} from {message.SenderId}");
             SawContact(sender);
         }
 
@@ -712,9 +710,7 @@ namespace Kademliath.Core
         /// <param name="response"></param>
         private void CacheResponse(Contact sender, Response response)
         {
-            CachedResponse entry = new CachedResponse {Arrived = DateTime.Now, Response = response};
-            //Log("Caching " + response.GetName() + " under " + response.GetConversationID().ToString());
-            // Store in cache
+            var entry = new CachedResponse {Arrived = DateTime.Now, Response = response};
             lock (_responseCache)
             {
                 _responseCache[response.ConversationId] = entry;
@@ -724,33 +720,23 @@ namespace Kademliath.Core
         /// <summary>
         /// Get a properly typed response from the cache, or null if none exists.
         /// </summary>
-        /// <param name="conversation"></param>
+        /// <param name="conversationId"></param>
         /// <returns></returns>
-        private T GetCachedResponse<T>(Id conversation) where T : Response
+        private T GetCachedResponse<T>(Id conversationId) where T : Response
         {
             lock (_responseCache)
             {
-                if (_responseCache.ContainsKey(conversation))
+                if (_responseCache.ContainsKey(conversationId))
                 {
                     // If we found something of the right type
-                    try
+                    if (_responseCache[conversationId].Response is T result)
                     {
-                        T toReturn = (T) _responseCache[conversation].Response;
-                        _responseCache.Remove(conversation);
-                        //Log("Retrieving cached " + toReturn.GetName());
-                        return toReturn; // Pull it out and return it
-                    }
-                    catch (Exception)
-                    {
-                        // Couldn't actually cast to type we want.
-                        return null;
+                        _responseCache.Remove(conversationId);
+                        return result;
                     }
                 }
-                else
-                {
-                    //Log("Nothing for " + conversation.ToString());
-                    return null; // Nothing there -> null
-                }
+
+                return null; // Nothing there -> null
             }
         }
 
@@ -772,7 +758,7 @@ namespace Kademliath.Core
         /// <param name="request"></param>
         private void HandleFindNode(Contact sender, FindNode request)
         {
-            List<Contact> closeNodes = _contactCache.CloseContacts(request.Target, sender.NodeId);
+            List<Contact> closeNodes = _buckets.CloseContacts(request.Target, sender.NodeId);
             var response = new FindNodeResponse(NodeId, request, closeNodes);
             SendMessage(sender.NodeEndPoint, response);
         }
@@ -792,7 +778,7 @@ namespace Kademliath.Core
             }
             else
             {
-                List<Contact> closeNodes = _contactCache.CloseContacts(request.Key, sender.NodeId);
+                List<Contact> closeNodes = _buckets.CloseContacts(request.Key, sender.NodeId);
                 var response = new FindValueContactResponse(NodeId, request, closeNodes);
                 SendMessage(sender.NodeEndPoint, response);
             }
@@ -976,56 +962,50 @@ namespace Kademliath.Core
         /// ADD NEW MESSAGE TYPES HERE
         /// </summary>
         /// <param name="receivedFrom"></param>
-        /// <param name="msg"></param>
-        private void DispatchMessageEvents(IPEndPoint receivedFrom, Message msg)
+        /// <param name="message"></param>
+        private void DispatchMessageEvents(IPEndPoint receivedFrom, Message message)
         {
             // Make a contact for the person who sent it.
-            Contact sender = new Contact(msg.SenderId, receivedFrom);
+            Contact sender = new Contact(message.SenderId, receivedFrom);
 
             // Every message gets this one
-            GotMessage?.Invoke(sender, msg);
+            GotMessage?.Invoke(sender, message);
 
             // All responses get this one
-            if (msg is Response response)
+            if (message is Response response)
                 GotResponse?.Invoke(sender, response);
 
-            switch (msg)
+            switch (message)
             {
-                // All messages have special events
-                // TODO: Dynamically register from each message class instead of this ugly elsif?
                 case Ping ping:
-                    // Pings
                     GotPing?.Invoke(sender, ping);
                     break;
                 case Pong pong:
-                    // Pongs
                     GotPong?.Invoke(sender, pong);
                     break;
-                case FindNode node:
-                    // Node search
-                    GotFindNode?.Invoke(sender, node);
+                case FindNode findNode:
+                    GotFindNode?.Invoke(sender, findNode);
                     break;
-                case FindNodeResponse message:
-                    GotFindNodeResponse?.Invoke(sender, message);
+                case FindNodeResponse findNodeResponse:
+                    GotFindNodeResponse?.Invoke(sender, findNodeResponse);
                     break;
-                case FindValue value:
-                    // Key search
-                    GotFindValue?.Invoke(sender, value);
+                case FindValue findValue:
+                    GotFindValue?.Invoke(sender, findValue);
                     break;
-                case FindValueContactResponse message:
-                    GotFindValueContactResponse?.Invoke(sender, message);
+                case FindValueContactResponse findValueContactResponse:
+                    GotFindValueContactResponse?.Invoke(sender, findValueContactResponse);
                     break;
-                case FindValueDataResponse message:
-                    GotFindValueDataResponse?.Invoke(sender, message);
+                case FindValueDataResponse findValueDataResponse:
+                    GotFindValueDataResponse?.Invoke(sender, findValueDataResponse);
                     break;
-                case StoreQuery query:
-                    GotStoreQuery?.Invoke(sender, query);
+                case StoreQuery storeQuery:
+                    GotStoreQuery?.Invoke(sender, storeQuery);
                     break;
-                case StoreResponse message:
-                    GotStoreResponse?.Invoke(sender, message);
+                case StoreResponse storeResponse:
+                    GotStoreResponse?.Invoke(sender, storeResponse);
                     break;
-                case StoreData data:
-                    GotStoreData?.Invoke(sender, data);
+                case StoreData storeData:
+                    GotStoreData?.Invoke(sender, storeData);
                     break;
             }
         }
@@ -1091,29 +1071,29 @@ namespace Kademliath.Core
                     //Log("Processing contact for " + applicant.GetID().ToString());
 
                     // If we already know about them
-                    if (_contactCache.Contains(applicant.NodeId))
+                    if (_buckets.Contains(applicant.NodeId))
                     {
                         // If they have a new address, record that
-                        if (!Equals(_contactCache.Get(applicant.NodeId).NodeEndPoint, applicant.NodeEndPoint))
+                        if (!Equals(_buckets.Get(applicant.NodeId).NodeEndPoint, applicant.NodeEndPoint))
                         {
                             // Replace old one
-                            _contactCache.Remove(applicant.NodeId);
-                            _contactCache.Put(applicant);
+                            _buckets.Remove(applicant.NodeId);
+                            _buckets.Put(applicant);
                         }
                         else
                         {
                             // Just promote them
-                            _contactCache.Promote(applicant.NodeId);
+                            _buckets.Promote(applicant.NodeId);
                         }
 
                         continue;
                     }
 
                     // If we can fit them, do so
-                    Contact blocker = _contactCache.Blocker(applicant.NodeId);
+                    Contact blocker = _buckets.Blocker(applicant.NodeId);
                     if (blocker == null)
                     {
-                        _contactCache.Put(applicant);
+                        _buckets.Put(applicant);
                     }
                     else
                     {
@@ -1121,8 +1101,8 @@ namespace Kademliath.Core
                         if (!SyncPing(blocker.NodeEndPoint))
                         {
                             // If the blocker doesn't respond, pick the applicant.
-                            _contactCache.Remove(blocker.NodeId);
-                            _contactCache.Put(applicant);
+                            _buckets.Remove(blocker.NodeId);
+                            _buckets.Put(applicant);
                             Log("Chose applicant");
                         }
                         else

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using Kademliath.Core;
@@ -14,11 +15,7 @@ namespace Core
     /// </summary>
     public class Dht
     {
-        /// <summary>
-        /// Returns the maximum size of individual puts.
-        /// </summary>
-        private const int MaxSize = 8 * 1024; // 8K is big
-
+        public Id NodeId { get; }
         private const string DefaultOverlayUrl = "http://localhost:5000/";
         private const string ListFragment = "nodes";
         private const string RegisterFragment = "nodes";
@@ -49,6 +46,7 @@ namespace Core
         {
             // Make a new node and get port
             _dhtNode = new KademliaNode();
+            NodeId = _dhtNode.NodeId;
             var ourPort = _dhtNode.GetPort();
             Console.WriteLine("We are on UDP port " + ourPort);
 
@@ -140,15 +138,9 @@ namespace Core
         /// <returns>an arbitrary value stored for the key, or null if no values are found</returns>
         public object Get(string key)
         {
-            IList<object> found = _dhtNode.Get(Id.Hash(key));
-            if (found.Count > 0)
-            {
-                return found[0]; // An arbitrary value
-            }
-            else
-            {
-                return null; // Nothing there
-            }
+            Log($"Getting '{key}'..");
+            var found = _dhtNode.Get(Id.Hash(key));
+            return found.Any() ? found[0] : null;
         }
 
         /// <summary>

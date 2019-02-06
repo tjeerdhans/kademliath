@@ -9,7 +9,7 @@ namespace Kademliath.Core
     /// Also responsible for storing last lookup times for buckets, so we can refresh them.
     /// Not thread safe for multiple people writing at once, since you can't enforce preconditions.
     /// </summary>
-    public class Bucket
+    public class Buckets
     {
         public const int BucketSize = 20; // "k" in the spec
         private const int NumBuckets = Id.IdLengthInBits;
@@ -22,7 +22,7 @@ namespace Kademliath.Core
         /// Constructor
         /// </summary>
         /// <param name="ourId">The Id to center the list on.</param>
-        public Bucket(Id ourId)
+        public Buckets(Id ourId)
         {
             _ourId = ourId;
             _buckets = new List<List<Contact>>(NumBuckets);
