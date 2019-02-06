@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Core.Messages
+namespace Kademliath.Core.Messages
 {
 	/// <summary>
 	/// Represents a ping message, used to see if a remote node is up.

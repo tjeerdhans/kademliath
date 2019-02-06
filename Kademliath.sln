@@ -1,8 +1,10 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kademliath.Node", "Kademliath.Node\Kademliath.Node.csproj", "{EA0B3568-906A-424F-9632-2CEA29721D87}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Node", "Node\Node.csproj", "{EA0B3568-906A-424F-9632-2CEA29721D87}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Core", "Core\Core.csproj", "{53A00E6A-CCE4-4003-94D0-545A91F68F21}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Registry", "Registry\Registry.csproj", "{F813B21C-DEBA-4485-B15D-E3BAB2CC6E4C}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -18,5 +20,9 @@ Global
 		{53A00E6A-CCE4-4003-94D0-545A91F68F21}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{53A00E6A-CCE4-4003-94D0-545A91F68F21}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{53A00E6A-CCE4-4003-94D0-545A91F68F21}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F813B21C-DEBA-4485-B15D-E3BAB2CC6E4C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F813B21C-DEBA-4485-B15D-E3BAB2CC6E4C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F813B21C-DEBA-4485-B15D-E3BAB2CC6E4C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F813B21C-DEBA-4485-B15D-E3BAB2CC6E4C}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

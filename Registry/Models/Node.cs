@@ -1,4 +1,4 @@
-namespace Kademliath.Core
+namespace Registry.Models
 {
     public class Node
     {

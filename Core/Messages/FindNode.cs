@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Core.Messages
+namespace Kademliath.Core.Messages
 {
 	/// <summary>
 	/// A message used to search for a node.
@@ -8,7 +8,7 @@ namespace Core.Messages
 	[Serializable]
 	public class FindNode : Message
 	{
-		private Id target;
+		public Id Target { get; }
 		
 		/// <summary>
 		/// Make a new FIND_NODE message
@@ -17,18 +17,9 @@ namespace Core.Messages
 		/// <param name="toFind"></param>
 		public FindNode(Id nodeId, Id toFind) : base(nodeId)
 		{
-			target = toFind;
+			Target = toFind;
 		}
-		
-		/// <summary>
-		/// Get the target of this message.
-		/// </summary>
-		/// <returns></returns>
-		public Id GetTarget()
-		{
-			return target;
-		}
-		
+			
 		public override string GetName() 
 		{
 			return "FIND_NODE";

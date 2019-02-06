@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Core.Messages
+namespace Kademliath.Core.Messages
 {
 	/// <summary>
 	/// A message asking if another node will store data for us, and if we need to send the data.
@@ -10,10 +10,9 @@ namespace Core.Messages
 	[Serializable]
 	public class StoreQuery : Message
 	{
-		private readonly Id _key;
-		private readonly Id _dataHash;
+		public Id Key { get; }
+		public Id DataHash { get; }
 		private readonly DateTime _publication;
-		private readonly int _valueSize;
 		
 		/// <summary>
 		/// Make a new STORE_QUERY message.
@@ -21,48 +20,21 @@ namespace Core.Messages
 		/// <param name="nodeId"></param>
 		/// <param name="toStore"></param>
 		/// <param name="hash">A hash of the data value</param>
-		/// <param name="originalPublication"></param>
+		/// <param name="originalPublicationTimestamp"></param>
 		/// <param name="dataSize"></param>
-		public StoreQuery(Id nodeId, Id toStore, Id hash, DateTime originalPublication, int dataSize) : base(nodeId)
+		public StoreQuery(Id nodeId, Id toStore, Id hash, DateTime originalPublicationTimestamp, int dataSize) : base(nodeId)
 		{
-			_key = toStore;
-			_dataHash = hash;
-			_publication = originalPublication;
-			_valueSize = dataSize;
-		}
-		
-		/// <summary>
-		/// Returns the key that we want stored.
-		/// </summary>
-		/// <returns></returns>
-		public Id GetKey()
-		{
-			return _key;
-		}
-		
-		/// <summary>
-		/// Gets the hash of the data value we're asking about.
-		/// </summary>
-		/// <returns></returns>
-		public Id GetDataHash()
-		{
-			return _dataHash;
-		}
-		
-		/// <summary>
-		/// Returns the size of the value we're storing, in bytes
-		/// </summary>
-		/// <returns></returns>
-		public int GetValueSize()
-		{
-			return _valueSize;
+			Key = toStore;
+			DataHash = hash;
+			_publication = originalPublicationTimestamp;
+			//_valueSize = dataSize;
 		}
 		
 		/// <summary>
 		/// Get when the data was originally published, in UTC.
 		/// </summary>
 		/// <returns></returns>
-		public DateTime GetPublicationTime()
+		public DateTime GetPublicationTimeUtc()
 		{
 			return _publication.ToUniversalTime();
 		}

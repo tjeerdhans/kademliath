@@ -1,6 +1,6 @@
 using System;
 
-namespace Core.Messages
+namespace Kademliath.Core.Messages
 {
     /// <summary>
     /// Represents a generic DHT RPC message
@@ -8,17 +8,16 @@ namespace Core.Messages
     [Serializable]
     public abstract class Message
     {
-        // All messages include sender id
-        private readonly Id _senderId;
-        private readonly Id _conversationId;
-		
-        /// <summary>
+        public Id SenderId { get;}
+        public Id ConversationId { get; }
+
+		/// <summary>
         /// Make a new message, recording the sender's Id.
         /// </summary>
         /// <param name="senderId"></param>
-        public Message(Id senderId) {
-            _senderId = senderId;
-            _conversationId = Id.RandomId();
+        protected Message(Id senderId) {
+            SenderId = senderId;
+            ConversationId = new Id();
         }
 		
         /// <summary>
@@ -26,31 +25,18 @@ namespace Core.Messages
         /// </summary>
         /// <param name="senderId"></param>
         /// <param name="conversationId"></param>
-        public Message(Id senderId, Id conversationId) {
-            _senderId = senderId;
-            _conversationId = conversationId;
+        protected Message(Id senderId, Id conversationId) {
+            SenderId = senderId;
+            ConversationId = conversationId;
         }
-		
+
         /// <summary>
         /// Get the name of the message.
         /// </summary>
         /// <returns></returns>
-        public abstract string GetName();
-		
-        /// <summary>
-        /// Get the Id of the sender of the message.
-        /// </summary>
-        /// <returns></returns>
-        public Id GetSenderId() {
-            return _senderId;
-        }
-		
-        /// <summary>
-        /// Gets the Id of this conversation.
-        /// </summary>
-        /// <returns></returns>
-        public Id GetConversationId() {
-            return _conversationId;
-        }
+        public virtual string GetName()
+        {
+            throw new NotImplementedException();
+        }		
     }
 }

@@ -1,7 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
+using Core;
 
-namespace Core.Messages
+namespace Kademliath.Core.Messages
 {
 	/// <summary>
 	/// Description of FindKeyContactResponse.
@@ -9,26 +10,17 @@ namespace Core.Messages
 	[Serializable]
 	public class FindValueContactResponse : Response
 	{
-		private readonly List<Contact> _contacts;
+		public List<Contact> Contacts { get; }
 		
 		/// <summary>
 		/// Make a new response reporting contacts to try.
 		/// </summary>
 		/// <param name="nodeId"></param>
 		/// <param name="request"></param>
-		/// <param name="close"></param>
-		public FindValueContactResponse(Id nodeId, FindValue request, List<Contact> close) : base(nodeId, request)
+		/// <param name="closeByContacts"></param>
+		public FindValueContactResponse(Id nodeId, FindValue request, List<Contact> closeByContacts) : base(nodeId, request)
 		{
-			_contacts = close;
-		}
-		
-		/// <summary>
-		/// Return the list of contacts sent.
-		/// </summary>
-		/// <returns></returns>
-		public List<Contact> GetContacts()
-		{
-			return _contacts;
+			Contacts = closeByContacts;
 		}
 		
 		public override string GetName()

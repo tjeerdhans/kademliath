@@ -2,13 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
+using Kademliath.Core;
 
 namespace Core
 {
     /// <summary>
     /// This is the class you use to use the library.
     /// You can put and get values.
-    /// It is responsible for bootstraping the local node and connecting to the appropriate overlay.
+    /// It is responsible for bootstrapping the local node and connecting to the appropriate overlay.
     /// It also registers us with the overlay.
     /// </summary>
     public class Dht
@@ -18,9 +19,9 @@ namespace Core
         /// </summary>
         private const int MaxSize = 8 * 1024; // 8K is big
 
-        private const string DefaultOverlayUrl = "http://comsmart.org/Daylight/";
-        private const string ListFragment = "api/nodes";
-        private const string RegisterFragment = "api/nodes"; // Append port number.
+        private const string DefaultOverlayUrl = "http://localhost:5000/";
+        private const string ListFragment = "nodes";
+        private const string RegisterFragment = "nodes";
 
         private readonly KademliaNode _dhtNode;
 
@@ -32,8 +33,7 @@ namespace Core
         /// </summary>
         public Dht()
             : this(DefaultOverlayUrl, true)
-        {
-            // Nothing to do!
+        {         
         }
 
         /// <summary>
@@ -47,14 +47,14 @@ namespace Core
         {
             // Make a new node and get port
             _dhtNode = new KademliaNode();
-            int ourPort = _dhtNode.GetPort();
-            Console.WriteLine("We are on UDP port " + ourPort.ToString());
+            var ourPort = _dhtNode.GetPort();
+            Console.WriteLine("We are on UDP port " + ourPort);
 
             // Bootstrap with some nodes
-            WebClient downloader = new WebClient();
+            var downloader = new WebClient();
             downloader.Proxy = null; // TODO: Let client specify proxy
             //downloader.Proxy = new WebProxy("www-proxy.nl.int.atosorigin.com:8080", true);
-            Console.WriteLine("Getting bootstrap list...");
+            Console.WriteLine("Getting bootstrap list..");
             // TODO: Handle 404, etc.
             var nodeList = new List<Node>();
             try
@@ -65,6 +65,10 @@ namespace Core
                     if (response.IsSuccessStatusCode)
                     {
                         var nodes = response.Content.ReadAsAsync<IEnumerable<Node>>().Result;
+                        foreach (var node in nodes)
+                        {
+                            Console.WriteLine($"Got node {node.HostAddress}:{node.HostPort}");
+                        }
                         nodeList.AddRange(nodes);
                     }
                 }
@@ -99,22 +103,29 @@ namespace Core
             Console.WriteLine("Joining network...");
             if (_dhtNode.JoinNetwork())
             {
-                Console.WriteLine("Daylight online");
+                Console.WriteLine("Joined successfully.");
                 if (register)
                 {
                     // Announce our presence
-                    using (var client = new HttpClient())
+                    try
                     {
-                        var unused = client
-                            .PostAsJsonAsync(overlayUrl + RegisterFragment, new Node {HostPort = ourPort}).Result;
-                    }
+                        using (var client = new HttpClient())
+                        {
+                            var unused = client
+                                .PostAsJsonAsync(overlayUrl + RegisterFragment, new Node {HostPort = ourPort}).Result;
+                        }
 
-                    Console.WriteLine("Announced presence");
+                        Console.WriteLine("Announced presence.");
+                    }
+                    catch (Exception exception)
+                    {
+                        Console.WriteLine($"Error while announcing presence: {exception.Message}");
+                    }
                 }
             }
             else
             {
-                Console.WriteLine("Unable to connect to Daylight overlay!\n"
+                Console.WriteLine("Unable to connect to the overlay!\n"
                                   + "Check that the master server is returning accessible nodes.");
             }
         }
@@ -155,6 +166,11 @@ namespace Core
         public void Put(string key, object val)
         {
             _dhtNode.Put(Id.Hash(key), val);
+        }
+
+        public void EnableDebug()
+        {
+            _dhtNode.EnableDebug();
         }
     }
 }

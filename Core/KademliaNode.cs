@@ -6,9 +6,10 @@ using System.Net.Sockets;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Formatters.Binary;
 using System.Threading;
-using Core.Messages;
+using Core;
+using Kademliath.Core.Messages;
 
-namespace Core
+namespace Kademliath.Core
 {
     /// <summary>
     /// Functions as a peer in the overlay network.
@@ -19,7 +20,7 @@ namespace Core
         private readonly Id _nodeId;
 
         // Network State
-        private readonly BucketList _contactCache;
+        private readonly Bucket _contactCache;
         private readonly Thread _bucketMinder; // Handle updates to cache
         private const int CheckInterval = 1;
         private readonly List<Contact> _contactQueue; // Add contacts here to be considered for caching
@@ -37,8 +38,7 @@ namespace Core
         private readonly SortedList<Id, CachedResponse> _responseCache;
         private readonly TimeSpan _maxSyncWait = new TimeSpan(5000000); // 500 ms in ticks
 
-        // Application (datastore)
-        private readonly LocalStorage _datastore; // Keep our key/value pairs
+        private readonly LocalStorage _storage; // Keep our key/value pairs
 
         private readonly SortedList<Id, DateTime>
             _acceptedStoreRequests; // Store a list of what put requests we actually accepted while waiting for data.
@@ -64,8 +64,8 @@ namespace Core
         private readonly TimeSpan _maxClockSkew = new TimeSpan(1, 0, 0);
 
         // Kademlia config
-        private const int Parallellism = 3; // Number of requests to run at once for iterative operations.
-        private const int NodesToFind = 20; // = k = bucket size
+        private const int Parallelism = 3; // Number of requests to run at once for iterative operations.
+        private const int NodesToFind = Bucket.BucketSize; // = k = bucket size
 
         private static readonly TimeSpan
             ExpireTime = new TimeSpan(24, 0, 0); // Time since original publication to expire a value
@@ -79,7 +79,7 @@ namespace Core
         private DateTime _lastReplication;
         //private static TimeSpan _republishTime = new TimeSpan(23, 0, 0); // Interval at which we should re-insert our values with new publication times
 
-        // How often do we run high-level maintainance (expiration, etc.)
+        // How often do we run high-level maintenance (expiration, etc.)
         private static readonly TimeSpan MaintenanceInterval = new TimeSpan(0, 10, 0);
         private readonly Thread _maintenanceMinder;
 
@@ -177,9 +177,9 @@ namespace Core
         {
             // Set up all our data
             _nodeId = id;
-            _contactCache = new BucketList(_nodeId);
+            _contactCache = new Bucket(_nodeId);
             _contactQueue = new List<Contact>();
-            _datastore = new LocalStorage();
+            _storage = new LocalStorage();
             _acceptedStoreRequests = new SortedList<Id, DateTime>();
             _sentStoreRequests = new SortedList<Id, OutstandingStoreRequest>();
             _responseCache = new SortedList<Id, CachedResponse>();
@@ -219,7 +219,7 @@ namespace Core
             _clientMinder.Start();
 
             // Start maintainance
-            _maintenanceMinder = new Thread(MindMaintainance);
+            _maintenanceMinder = new Thread(MindMaintenance);
             _maintenanceMinder.IsBackground = true;
             _maintenanceMinder.Start();
         }
@@ -289,20 +289,11 @@ namespace Core
         #region Interface
 
         /// <summary>
-        /// Enables degugging output for the node.
+        /// Enables debugging output for the node.
         /// </summary>
         public void EnableDebug()
         {
             _debug = true;
-        }
-
-        /// <summary>
-        /// Returns the Id of the node
-        /// </summary>
-        /// <returns></returns>
-        public Id GetId()
-        {
-            return _nodeId;
         }
 
         /// <summary>
@@ -332,10 +323,10 @@ namespace Core
         /// <returns></returns>
         public IList<object> Get(Id key)
         {
-            if (_datastore.ContainsKey(key))
+            if (_storage.ContainsKey(key))
             {
                 // Check the local datastore first.
-                return _datastore.Get(key);
+                return _storage.Get(key);
             }
 
             var found = IterativeFindValue(key, out _);
@@ -357,30 +348,30 @@ namespace Core
         /// <summary>
         /// Expire old data, replicate all data, refresh needy buckets.
         /// </summary>
-        private void MindMaintainance()
+        private void MindMaintenance()
         {
             while (_threadsRun)
             {
                 Thread.Sleep(MaintenanceInterval);
                 Log("Performing maintenance");
                 // Expire old
-                _datastore.Expire();
-                Log(_datastore.GetKeys().Count + " keys stored.");
+                _storage.Expire();
+                Log(_storage.GetKeys().Count + " keys stored.");
 
                 // Replicate all if needed
                 // We get our own lists to iterate
                 if (DateTime.Now > _lastReplication.Add(ReplicateTime))
                 {
                     Log("Replicating");
-                    foreach (Id key in _datastore.GetKeys())
+                    foreach (Id key in _storage.GetKeys())
                     {
-                        foreach (Id valHash in _datastore.GetHashes(key))
+                        foreach (Id valHash in _storage.GetHashes(key))
                         {
                             try
                             {
                                 // ReSharper disable once PossibleInvalidOperationException
-                                IterativeStore(key, _datastore.Get(key, valHash),
-                                    (DateTime) _datastore.GetPublicationTime(key, valHash));
+                                IterativeStore(key, _storage.Get(key, valHash),
+                                    (DateTime) _storage.GetPublicationTime(key, valHash));
                             }
                             catch (Exception ex)
                             {
@@ -431,7 +422,7 @@ namespace Core
             foreach (Contact c in closest)
             {
                 // Store a copy at each
-                SyncStore(c.GetEndPoint(), key, val, originalInsertion);
+                SyncStore(c.NodeEndPoint, key, val, originalInsertion);
             }
         }
 
@@ -456,8 +447,7 @@ namespace Core
         /// <returns></returns>
         private IList<object> IterativeFindValue(Id target, out IList<Contact> close)
         {
-            IList<object> found;
-            close = IterativeFind(target, true, out found);
+            close = IterativeFind(target, true, out var found);
             return found;
         }
 
@@ -480,9 +470,9 @@ namespace Core
             // Get the alpha closest nodes to the target
             // TODO: Should actually pick from a certain bucket.
             SortedList<Id, Contact> shortlist = new SortedList<Id, Contact>();
-            foreach (Contact c in _contactCache.CloseContacts(Parallellism, target, null))
+            foreach (Contact c in _contactCache.CloseContacts(Parallelism, target, null))
             {
-                shortlist.Add(c.GetId(), c);
+                shortlist.Add(c.NodeId, c);
             }
 
             int shortlistIndex = 0; // Everyone before this is up.
@@ -491,7 +481,7 @@ namespace Core
             Contact closest = null;
             foreach (Contact toAsk in shortlist.Values)
             {
-                if (closest == null || (toAsk.GetId() ^ target) < (closest.GetId() ^ target))
+                if (closest == null || (toAsk.NodeId ^ target) < (closest.NodeId ^ target))
                 {
                     closest = toAsk;
                 }
@@ -504,13 +494,13 @@ namespace Core
 #pragma warning disable 219
                 bool foundCloser = false; // TODO: WTF does the spec want with this
 #pragma warning restore 219
-                for (int i = shortlistIndex; i < shortlistIndex + Parallellism && i < shortlist.Count; i++)
+                for (int i = shortlistIndex; i < shortlistIndex + Parallelism && i < shortlist.Count; i++)
                 {
                     List<Contact> suggested;
                     if (getValue)
                     {
                         // Get list or value
-                        suggested = SyncFindValue(shortlist.Values[i].GetEndPoint(), target, out var returnedValues);
+                        suggested = SyncFindValue(shortlist.Values[i].NodeEndPoint, target, out var returnedValues);
                         if (returnedValues != null)
                         {
                             // We found it! Pass it up!
@@ -523,7 +513,7 @@ namespace Core
                     else
                     {
                         // Only get list
-                        suggested = SyncFindNode(shortlist.Values[i].GetEndPoint(), target);
+                        suggested = SyncFindNode(shortlist.Values[i].NodeEndPoint, target);
                     }
 
                     if (suggested != null)
@@ -531,13 +521,13 @@ namespace Core
                         // Add suggestions to shortlist and check for closest
                         foreach (Contact suggestion in suggested)
                         {
-                            if (!shortlist.ContainsKey(suggestion.GetId()))
+                            if (!shortlist.ContainsKey(suggestion.NodeId))
                             {
                                 // Contacts aren't value types so we have to do this.
-                                shortlist.Add(suggestion.GetId(), suggestion);
+                                shortlist.Add(suggestion.NodeId, suggestion);
                             }
 
-                            if (closest != null && (suggestion.GetId() ^ target) < (closest.GetId() ^ target))
+                            if (closest != null && (suggestion.NodeId ^ target) < (closest.NodeId ^ target))
                             {
                                 closest = suggestion;
                                 // ReSharper disable once RedundantAssignment
@@ -554,7 +544,7 @@ namespace Core
                     }
                 }
 
-                shortlistIndex += Parallellism;
+                shortlistIndex += Parallelism;
             }
 
             // Drop extra ones
@@ -583,16 +573,16 @@ namespace Core
         private void SyncStore(IPEndPoint storeAt, Id key, object val, DateTime originalInsertion)
         {
             // Make a message
-            Message storeIt = new StoreQuery(_nodeId, key, Id.Hash(val), originalInsertion, val.ToByteArray().Length);
+            var storeIt = new StoreQuery(_nodeId, key, Id.Hash(val), originalInsertion, val.ToByteArray().Length);
 
             // Record having sent it
-            OutstandingStoreRequest req = new OutstandingStoreRequest
+            var req = new OutstandingStoreRequest
             {
                 Key = key, Val = val, Sent = DateTime.Now, Publication = originalInsertion
             };
             lock (_sentStoreRequests)
             {
-                _sentStoreRequests[storeIt.GetConversationId()] = req;
+                _sentStoreRequests[storeIt.ConversationId] = req;
             }
 
             // Send it
@@ -615,10 +605,10 @@ namespace Core
             while (DateTime.Now < called.Add(_maxSyncWait))
             {
                 // If we got a response, send it up
-                FindNodeResponse resp = GetCachedResponse<FindNodeResponse>(question.GetConversationId());
+                FindNodeResponse resp = GetCachedResponse<FindNodeResponse>(question.ConversationId);
                 if (resp != null)
                 {
-                    return resp.GetContacts();
+                    return resp.RecommendedContacts;
                 }
 
                 Thread.Sleep(CheckInterval); // Otherwise wait for one
@@ -640,28 +630,28 @@ namespace Core
         private List<Contact> SyncFindValue(IPEndPoint ask, Id toFind, out IList<object> val)
         {
             // Send message
-            DateTime called = DateTime.Now;
-            Message question = new FindValue(_nodeId, toFind);
+            var called = DateTime.Now;
+            var question = new FindValue(_nodeId, toFind);
             SendMessage(ask, question);
 
             while (DateTime.Now < called.Add(_maxSyncWait))
             {
                 // See if we got data!
-                FindValueDataResponse dataResp = GetCachedResponse<FindValueDataResponse>(question.GetConversationId());
+                FindValueDataResponse dataResp = GetCachedResponse<FindValueDataResponse>(question.ConversationId);
                 if (dataResp != null)
                 {
                     // Send it out and return null!
-                    val = dataResp.GetValues();
+                    val = dataResp.Values;
                     return null;
                 }
 
                 // If we got a contact, send it up
                 FindValueContactResponse resp =
-                    GetCachedResponse<FindValueContactResponse>(question.GetConversationId());
+                    GetCachedResponse<FindValueContactResponse>(question.ConversationId);
                 if (resp != null)
                 {
                     val = null;
-                    return resp.GetContacts();
+                    return resp.Contacts;
                 }
 
                 Thread.Sleep(CheckInterval); // Otherwise wait for one
@@ -680,14 +670,14 @@ namespace Core
         private bool SyncPing(IPEndPoint toPing)
         {
             // Send message
-            DateTime called = DateTime.Now;
-            Message ping = new Ping(_nodeId);
+            var called = DateTime.Now;
+            var ping = new Ping(_nodeId);
             SendMessage(toPing, ping);
 
             while (DateTime.Now < called.Add(_maxSyncWait))
             {
                 // If we got a response, send it up
-                Pong resp = GetCachedResponse<Pong>(ping.GetConversationId());
+                Pong resp = GetCachedResponse<Pong>(ping.ConversationId);
                 if (resp != null)
                 {
                     return true; // They replied in time
@@ -711,7 +701,7 @@ namespace Core
         /// <param name="msg"></param>
         private void HandleMessage(Contact sender, Message msg)
         {
-            Log(_nodeId + " got " + msg.GetName() + " from " + msg.GetSenderId());
+            Log(_nodeId + " got " + msg.GetName() + " from " + msg.SenderId);
             SawContact(sender);
         }
 
@@ -727,7 +717,7 @@ namespace Core
             // Store in cache
             lock (_responseCache)
             {
-                _responseCache[response.GetConversationId()] = entry;
+                _responseCache[response.ConversationId] = entry;
             }
         }
 
@@ -769,9 +759,9 @@ namespace Core
         /// </summary>
         private void HandlePing(Contact sender, Ping ping)
         {
-            Message pong = new Pong(_nodeId, ping);
+            var pong = new Pong(_nodeId, ping);
 
-            SendMessage(sender.GetEndPoint(), pong);
+            SendMessage(sender.NodeEndPoint, pong);
         }
 
         /// <summary>
@@ -782,9 +772,9 @@ namespace Core
         /// <param name="request"></param>
         private void HandleFindNode(Contact sender, FindNode request)
         {
-            List<Contact> closeNodes = _contactCache.CloseContacts(request.GetTarget(), sender.GetId());
-            Message response = new FindNodeResponse(_nodeId, request, closeNodes);
-            SendMessage(sender.GetEndPoint(), response);
+            List<Contact> closeNodes = _contactCache.CloseContacts(request.Target, sender.NodeId);
+            var response = new FindNodeResponse(_nodeId, request, closeNodes);
+            SendMessage(sender.NodeEndPoint, response);
         }
 
         /// <summary>
@@ -794,17 +784,17 @@ namespace Core
         /// <param name="request"></param>
         private void HandleFindValue(Contact sender, FindValue request)
         {
-            if (_datastore.ContainsKey(request.GetKey()))
+            if (_storage.ContainsKey(request.Key))
             {
-                IList<object> vals = _datastore.Get(request.GetKey());
-                Message response = new FindValueDataResponse(_nodeId, request, vals);
-                SendMessage(sender.GetEndPoint(), response);
+                var values = _storage.Get(request.Key);
+                var response = new FindValueDataResponse(_nodeId, request, values);
+                SendMessage(sender.NodeEndPoint, response);
             }
             else
             {
-                List<Contact> closeNodes = _contactCache.CloseContacts(request.GetKey(), sender.GetId());
-                Message response = new FindValueContactResponse(_nodeId, request, closeNodes);
-                SendMessage(sender.GetEndPoint(), response);
+                List<Contact> closeNodes = _contactCache.CloseContacts(request.Key, sender.NodeId);
+                var response = new FindValueContactResponse(_nodeId, request, closeNodes);
+                SendMessage(sender.NodeEndPoint, response);
             }
         }
 
@@ -816,19 +806,19 @@ namespace Core
         private void HandleStoreQuery(Contact sender, StoreQuery request)
         {
             //TODO: check size and local storage policy
-            Id key = request.GetKey();
-            Id valHash = request.GetDataHash();
+            Id key = request.Key;
+            Id valHash = request.DataHash;
 
-            if (!_datastore.Contains(key, valHash))
+            if (!_storage.Contains(key, valHash))
             {
-                _acceptedStoreRequests[request.GetConversationId()] = DateTime.Now; // Record that we accepted it
-                SendMessage(sender.GetEndPoint(), new StoreResponse(_nodeId, request, true));
+                _acceptedStoreRequests[request.ConversationId] = DateTime.Now; // Record that we accepted it
+                SendMessage(sender.NodeEndPoint, new StoreResponse(_nodeId, request, true));
             }
-            else if (request.GetPublicationTime() > _datastore.GetPublicationTime(key, valHash)
-                     && request.GetPublicationTime() < DateTime.Now.ToUniversalTime().Add(_maxClockSkew))
+            else if (request.GetPublicationTimeUtc() > _storage.GetPublicationTime(key, valHash)
+                     && request.GetPublicationTimeUtc() < DateTime.Now.ToUniversalTime().Add(_maxClockSkew))
             {
                 // Update our recorded publicaton time
-                _datastore.Restamp(key, valHash, request.GetPublicationTime(), ExpireTime);
+                _storage.Restamp(key, valHash, request.GetPublicationTimeUtc(), ExpireTime);
             }
         }
 
@@ -842,19 +832,19 @@ namespace Core
             // If we asked for it, store it and clear the authorization.
             lock (_acceptedStoreRequests)
             {
-                if (_acceptedStoreRequests.ContainsKey(request.GetConversationId()))
+                if (_acceptedStoreRequests.ContainsKey(request.ConversationId))
                 {
-                    _acceptedStoreRequests.Remove(request.GetKey());
+                    _acceptedStoreRequests.Remove(request.Key);
 
                     // TODO: Calculate when we should expire this data according to Kademlia
                     // For now just keep it until it expires
 
                     // Don't accept stuff published far in the future
-                    if (request.GetPublicationTime() < DateTime.Now.ToUniversalTime().Add(_maxClockSkew))
+                    if (request.GetPublicationTimeUtc() < DateTime.Now.ToUniversalTime().Add(_maxClockSkew))
                     {
                         // We re-hash since we shouldn't trust their hash
-                        _datastore.Put(request.GetKey(), Id.Hash(request.GetData()), request.GetData(),
-                            request.GetPublicationTime(), ExpireTime);
+                        _storage.Put(request.Key, Id.Hash(request.Data), request.Data,
+                            request.GetPublicationTimeUtc(), ExpireTime);
                     }
                 }
             }
@@ -869,16 +859,16 @@ namespace Core
         {
             lock (_sentStoreRequests)
             {
-                if (response.ShouldSendData()
-                    && _sentStoreRequests.ContainsKey(response.GetConversationId()))
+                if (response.ShouldSendData
+                    && _sentStoreRequests.ContainsKey(response.ConversationId))
                 {
                     // We actually sent this
                     // Send along the data and remove it from the list
-                    OutstandingStoreRequest toStore = _sentStoreRequests[response.GetConversationId()];
-                    SendMessage(sender.GetEndPoint(),
+                    var toStore = _sentStoreRequests[response.ConversationId];
+                    SendMessage(sender.NodeEndPoint,
                         new StoreData(_nodeId, response, toStore.Key, Id.Hash(toStore.Val), toStore.Val,
                             toStore.Publication));
-                    _sentStoreRequests.Remove(response.GetConversationId());
+                    _sentStoreRequests.Remove(response.ConversationId);
                 }
             }
         }
@@ -948,16 +938,16 @@ namespace Core
                 try
                 {
                     // Get a datagram
-                    IPEndPoint sender = new IPEndPoint(IPAddress.Any, 0); // Get from anyone
+                    var sender = new IPEndPoint(IPAddress.Any, 0); // Get from anyone
                     byte[] data = _udpClient.Receive(ref sender);
 
                     // Decode the message
                     MemoryStream ms = new MemoryStream(data);
                     IFormatter decoder = new BinaryFormatter();
-                    object got = null;
+                    object incomingMessage = null;
                     try
                     {
-                        got = decoder.Deserialize(ms);
+                        incomingMessage = decoder.Deserialize(ms);
                     }
                     catch (Exception)
                     {
@@ -965,7 +955,7 @@ namespace Core
                     }
 
                     // Process the message
-                    if (got != null && got is Message msg)
+                    if (incomingMessage != null && incomingMessage is Message msg)
                     {
                         DispatchMessageEvents(sender, msg);
                     }
@@ -990,7 +980,7 @@ namespace Core
         private void DispatchMessageEvents(IPEndPoint receivedFrom, Message msg)
         {
             // Make a contact for the person who sent it.
-            Contact sender = new Contact(msg.GetSenderId(), receivedFrom);
+            Contact sender = new Contact(msg.SenderId, receivedFrom);
 
             // Every message gets this one
             GotMessage?.Invoke(sender, msg);
@@ -1041,19 +1031,19 @@ namespace Core
         }
 
         /// <summary>
-        /// Send a mesaage to someone.
+        /// Send a message to someone.
         /// </summary>
         /// <param name="destination"></param>
-        /// <param name="msg"></param>
-        private void SendMessage(IPEndPoint destination, Message msg)
+        /// <param name="message"></param>
+        private void SendMessage(IPEndPoint destination, Message message)
         {
             // Encode the message
             var ms = new MemoryStream();
             IFormatter encoder = new BinaryFormatter();
-            encoder.Serialize(ms, msg);
+            encoder.Serialize(ms, message);
             byte[] messageData = ms.GetBuffer();
 
-            Log(_nodeId + " sending " + msg.GetName() + " to " + destination);
+            Log(_nodeId + " sending " + message.GetName() + " to " + destination);
 
             _udpClient.Send(messageData, messageData.Length, destination);
         }
@@ -1065,7 +1055,7 @@ namespace Core
         /// <param name="seen"></param>
         private void SawContact(Contact seen)
         {
-            if (seen.GetId() == _nodeId)
+            if (seen.NodeId == _nodeId)
             {
                 return; // NEVER insert ourselves!
             }
@@ -1101,26 +1091,26 @@ namespace Core
                     //Log("Processing contact for " + applicant.GetID().ToString());
 
                     // If we already know about them
-                    if (_contactCache.Contains(applicant.GetId()))
+                    if (_contactCache.Contains(applicant.NodeId))
                     {
                         // If they have a new address, record that
-                        if (!Equals(_contactCache.Get(applicant.GetId()).GetEndPoint(), applicant.GetEndPoint()))
+                        if (!Equals(_contactCache.Get(applicant.NodeId).NodeEndPoint, applicant.NodeEndPoint))
                         {
                             // Replace old one
-                            _contactCache.Remove(applicant.GetId());
+                            _contactCache.Remove(applicant.NodeId);
                             _contactCache.Put(applicant);
                         }
                         else
                         {
                             // Just promote them
-                            _contactCache.Promote(applicant.GetId());
+                            _contactCache.Promote(applicant.NodeId);
                         }
 
                         continue;
                     }
 
                     // If we can fit them, do so
-                    Contact blocker = _contactCache.Blocker(applicant.GetId());
+                    Contact blocker = _contactCache.Blocker(applicant.NodeId);
                     if (blocker == null)
                     {
                         _contactCache.Put(applicant);
@@ -1128,10 +1118,10 @@ namespace Core
                     else
                     {
                         // We can't fit them. We have to choose between blocker and applicant
-                        if (!SyncPing(blocker.GetEndPoint()))
+                        if (!SyncPing(blocker.NodeEndPoint))
                         {
                             // If the blocker doesn't respond, pick the applicant.
-                            _contactCache.Remove(blocker.GetId());
+                            _contactCache.Remove(blocker.NodeId);
                             _contactCache.Put(applicant);
                             Log("Chose applicant");
                         }

@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Core.Messages
+namespace Kademliath.Core.Messages
 {
 	/// <summary>
 	/// Represents a ping reply.

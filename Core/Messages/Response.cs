@@ -1,6 +1,6 @@
 using System;
 
-namespace Core.Messages
+namespace Kademliath.Core.Messages
 {
     /// <summary>
     /// Represents a response message, in the same conversation as an original message.
@@ -13,7 +13,7 @@ namespace Core.Messages
         /// </summary>
         /// <param name="nodeId"></param>
         /// <param name="respondingTo"></param>
-        public Response(Id nodeId, Message respondingTo) : base(nodeId, respondingTo.GetConversationId())
+        protected Response(Id nodeId, Message respondingTo) : base(nodeId, respondingTo.ConversationId)
         {
         }
     }

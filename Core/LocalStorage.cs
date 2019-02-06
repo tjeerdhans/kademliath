@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Formatters.Binary;
 using System.Threading;
+using Kademliath.Core;
 
 namespace Core
 {
@@ -230,7 +231,7 @@ namespace Core
 		/// </summary>
 		/// <param name="key"></param>
 		/// <returns></returns>
-		public IList<object> Get(Id key)
+		public List<object> Get(Id key)
 		{
             List<object> toReturn = new List<object>();
 			lock(_store) {

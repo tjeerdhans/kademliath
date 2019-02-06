@@ -1,7 +1,7 @@
 using System.IO;
 using System.Runtime.Serialization.Formatters.Binary;
 
-namespace Core
+namespace Kademliath.Core
 {
     public static class ObjectUtils
     {

@@ -1,5 +1,6 @@
 using System;
 using System.Net;
+using Kademliath.Core;
 
 namespace Core
 {
@@ -9,39 +10,37 @@ namespace Core
     [Serializable]
     public class Contact
     {
-        private readonly Id _nodeId;
-        private readonly IPEndPoint _nodeEndpoint;
-		
-        /// <summary>
-        /// Make a contact for a node with the given ID at the given location.
-        /// </summary>
-        /// <param name="id"></param>
-        /// <param name="endpoint"></param>
-        public Contact(Id id, IPEndPoint endpoint)
+        public Id NodeId { get; }
+
+        public IPEndPoint NodeEndPoint
         {
-            _nodeId = id;
-            _nodeEndpoint = endpoint;
+            get => new IPEndPoint(IPAddress.Parse(IpAddress), Port);
+            private set
+            {
+                IpAddress = value.Address.ToString();
+                Port = value.Port;
+            }
         }
-		
-        /// <summary>
-        /// Get the node's ID.
-        /// </summary>
-        /// <returns></returns>
-        public Id GetId() {
-            return _nodeId;
+
+        public string IpAddress { get; private set; }
+        public int Port { get; private set; }
+
+        public Contact(Id id, string ipAddress, int port)
+        {
+            NodeId = id;
+            IpAddress = ipAddress;
+            Port = port;
         }
-		
-        /// <summary>
-        /// Get the node's endpoint.
-        /// </summary>
-        /// <returns></returns>
-        public IPEndPoint GetEndPoint() {
-            return _nodeEndpoint;
+
+        public Contact(Id id, IPEndPoint ipEndPoint)
+        {
+            NodeId = id;
+            NodeEndPoint = ipEndPoint;
         }
-		
+
         public override string ToString()
         {
-            return GetId() + "@" + GetEndPoint();
+            return NodeId + "@" + NodeEndPoint;
         }
     }
 }
