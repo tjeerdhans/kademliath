@@ -25,6 +25,8 @@ namespace Core
 
         private readonly KademliaNode _dhtNode;
 
+        private bool _debug;
+
         /// <summary>
         /// Create a new DHT. It should connect to the default overlay network
         /// if possible, or use an existing connection, and do default things
@@ -33,7 +35,7 @@ namespace Core
         /// </summary>
         public Dht()
             : this(DefaultOverlayUrl, true)
-        {         
+        {
         }
 
         /// <summary>
@@ -69,6 +71,7 @@ namespace Core
                         {
                             Console.WriteLine($"Got node {node.HostAddress}:{node.HostPort}");
                         }
+
                         nodeList.AddRange(nodes);
                     }
                 }
@@ -165,12 +168,25 @@ namespace Core
         /// <param name="val">Can be up to and including MaxSize() UTF-8 characters.</param>
         public void Put(string key, object val)
         {
-            _dhtNode.Put(Id.Hash(key), val);
+            var keyHash = Id.Hash(key);
+            Log($"Putting {key}({keyHash}):{val}");
+            _dhtNode.Put(keyHash, val);
         }
 
         public void EnableDebug()
         {
+            _debug = true;
             _dhtNode.EnableDebug();
+        }
+
+        /// <summary>
+        /// Log debug messages, if debugging is enabled.
+        /// </summary>
+        /// <param name="message"></param>
+        private void Log(string message)
+        {
+            if (_debug)
+                Console.WriteLine($"{_dhtNode.NodeId} {message}");
         }
     }
 }

@@ -17,7 +17,7 @@ namespace Kademliath.Core
     public class KademliaNode : IDisposable
     {
         // Identity
-        private readonly Id _nodeId;
+        public Id NodeId { get; }
 
         // Network State
         private readonly Bucket _contactCache;
@@ -176,8 +176,8 @@ namespace Kademliath.Core
         public KademliaNode(int port, Id id)
         {
             // Set up all our data
-            _nodeId = id;
-            _contactCache = new Bucket(_nodeId);
+            NodeId = id;
+            _contactCache = new Bucket(NodeId);
             _contactQueue = new List<Contact>();
             _storage = new LocalStorage();
             _acceptedStoreRequests = new SortedList<Id, DateTime>();
@@ -256,7 +256,7 @@ namespace Kademliath.Core
         public bool JoinNetwork()
         {
             Log("Joining");
-            IList<Contact> found = IterativeFindNode(_nodeId);
+            IList<Contact> found = IterativeFindNode(NodeId);
             if (found == null)
             {
                 Log("Found <null list>");
@@ -462,7 +462,7 @@ namespace Kademliath.Core
         private IList<Contact> IterativeFind(Id target, bool getValue, out IList<object> vals)
         {
             // Log the lookup
-            if (target != _nodeId)
+            if (target != NodeId)
             {
                 _contactCache.Touch(target);
             }
@@ -573,7 +573,7 @@ namespace Kademliath.Core
         private void SyncStore(IPEndPoint storeAt, Id key, object val, DateTime originalInsertion)
         {
             // Make a message
-            var storeIt = new StoreQuery(_nodeId, key, Id.Hash(val), originalInsertion, val.ToByteArray().Length);
+            var storeIt = new StoreQuery(NodeId, key, Id.Hash(val), originalInsertion, val.ToByteArray().Length);
 
             // Record having sent it
             var req = new OutstandingStoreRequest
@@ -599,7 +599,7 @@ namespace Kademliath.Core
         {
             // Send message
             DateTime called = DateTime.Now;
-            Message question = new FindNode(_nodeId, toFind);
+            Message question = new FindNode(NodeId, toFind);
             SendMessage(ask, question);
 
             while (DateTime.Now < called.Add(_maxSyncWait))
@@ -631,7 +631,7 @@ namespace Kademliath.Core
         {
             // Send message
             var called = DateTime.Now;
-            var question = new FindValue(_nodeId, toFind);
+            var question = new FindValue(NodeId, toFind);
             SendMessage(ask, question);
 
             while (DateTime.Now < called.Add(_maxSyncWait))
@@ -671,7 +671,7 @@ namespace Kademliath.Core
         {
             // Send message
             var called = DateTime.Now;
-            var ping = new Ping(_nodeId);
+            var ping = new Ping(NodeId);
             SendMessage(toPing, ping);
 
             while (DateTime.Now < called.Add(_maxSyncWait))
@@ -701,7 +701,7 @@ namespace Kademliath.Core
         /// <param name="msg"></param>
         private void HandleMessage(Contact sender, Message msg)
         {
-            Log(_nodeId + " got " + msg.GetName() + " from " + msg.SenderId);
+            Log($"got {msg.GetName()} from {msg.SenderId}");
             SawContact(sender);
         }
 
@@ -759,7 +759,7 @@ namespace Kademliath.Core
         /// </summary>
         private void HandlePing(Contact sender, Ping ping)
         {
-            var pong = new Pong(_nodeId, ping);
+            var pong = new Pong(NodeId, ping);
 
             SendMessage(sender.NodeEndPoint, pong);
         }
@@ -773,7 +773,7 @@ namespace Kademliath.Core
         private void HandleFindNode(Contact sender, FindNode request)
         {
             List<Contact> closeNodes = _contactCache.CloseContacts(request.Target, sender.NodeId);
-            var response = new FindNodeResponse(_nodeId, request, closeNodes);
+            var response = new FindNodeResponse(NodeId, request, closeNodes);
             SendMessage(sender.NodeEndPoint, response);
         }
 
@@ -787,13 +787,13 @@ namespace Kademliath.Core
             if (_storage.ContainsKey(request.Key))
             {
                 var values = _storage.Get(request.Key);
-                var response = new FindValueDataResponse(_nodeId, request, values);
+                var response = new FindValueDataResponse(NodeId, request, values);
                 SendMessage(sender.NodeEndPoint, response);
             }
             else
             {
                 List<Contact> closeNodes = _contactCache.CloseContacts(request.Key, sender.NodeId);
-                var response = new FindValueContactResponse(_nodeId, request, closeNodes);
+                var response = new FindValueContactResponse(NodeId, request, closeNodes);
                 SendMessage(sender.NodeEndPoint, response);
             }
         }
@@ -812,12 +812,12 @@ namespace Kademliath.Core
             if (!_storage.Contains(key, valHash))
             {
                 _acceptedStoreRequests[request.ConversationId] = DateTime.Now; // Record that we accepted it
-                SendMessage(sender.NodeEndPoint, new StoreResponse(_nodeId, request, true));
+                SendMessage(sender.NodeEndPoint, new StoreResponse(NodeId, request, true));
             }
             else if (request.GetPublicationTimeUtc() > _storage.GetPublicationTime(key, valHash)
                      && request.GetPublicationTimeUtc() < DateTime.Now.ToUniversalTime().Add(_maxClockSkew))
             {
-                // Update our recorded publicaton time
+                // Update our recorded publication time
                 _storage.Restamp(key, valHash, request.GetPublicationTimeUtc(), ExpireTime);
             }
         }
@@ -866,7 +866,7 @@ namespace Kademliath.Core
                     // Send along the data and remove it from the list
                     var toStore = _sentStoreRequests[response.ConversationId];
                     SendMessage(sender.NodeEndPoint,
-                        new StoreData(_nodeId, response, toStore.Key, Id.Hash(toStore.Val), toStore.Val,
+                        new StoreData(NodeId, response, toStore.Key, Id.Hash(toStore.Val), toStore.Val,
                             toStore.Publication));
                     _sentStoreRequests.Remove(response.ConversationId);
                 }
@@ -1043,7 +1043,7 @@ namespace Kademliath.Core
             encoder.Serialize(ms, message);
             byte[] messageData = ms.GetBuffer();
 
-            Log(_nodeId + " sending " + message.GetName() + " to " + destination);
+            Log($"sending {message.GetName()} to {destination}");
 
             _udpClient.Send(messageData, messageData.Length, destination);
         }
@@ -1055,7 +1055,7 @@ namespace Kademliath.Core
         /// <param name="seen"></param>
         private void SawContact(Contact seen)
         {
-            if (seen.NodeId == _nodeId)
+            if (seen.NodeId == NodeId)
             {
                 return; // NEVER insert ourselves!
             }
@@ -1146,7 +1146,7 @@ namespace Kademliath.Core
         private void Log(string message)
         {
             if (_debug)
-                Console.WriteLine(message);
+                Console.WriteLine($"{NodeId} {message}");
         }
 
         #endregion

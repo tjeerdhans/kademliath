@@ -24,8 +24,8 @@ namespace Kademliath.Node
             for (int i = 0; i < nodeCount; i++)
             {
                 var dht = new Dht("http://localhost:5000/", true);
-                dht.Put("programmer","tjeerdhans");
                 dht.EnableDebug();
+                dht.Put("programmer","tjeerdhans");
                 nodes.Add(dht);
             }
 			

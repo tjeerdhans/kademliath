@@ -4,7 +4,7 @@ using System.Collections.Generic;
 namespace Kademliath.Core.Messages
 {
     /// <summary>
-    /// Send data in reply to a FindVAlue
+    /// Send data in reply to a FindValue
     /// </summary>
     [Serializable]
     public class FindValueDataResponse : Response
