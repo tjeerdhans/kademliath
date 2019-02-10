@@ -25,7 +25,7 @@ namespace Registry.Controllers
         }
 
         [HttpGet]
-        public ActionResult<IActionResult> Get()
+        public IActionResult Get()
         {
             return Ok(_nodeList);
         }
