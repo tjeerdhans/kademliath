@@ -10,10 +10,19 @@ namespace Kademliath.Node
     {
         static void Main(string[] args)
         {
-            if (args.Contains("-master"))
+            if (args.Length > 0 && (args[0]=="-m" || args[0]=="--master"))
             {
                 Console.WriteLine($"Initializing master node..");
-                var node = new KademliaNode(8810, new Id());
+                int port;
+                if (args.Length>=2)
+                {
+                    if (!int.TryParse(args[1], out port))
+                    {
+                        port = 8810;
+                    }
+                }
+                
+                var node = new KademliaNode(port, new Id());
                 node.EnableDebug();
                 node.JoinNetwork(); // Try to join network. Fail.
             }
