@@ -16,7 +16,8 @@ namespace Kademliath.Core.Messages
         /// </summary>
         /// <param name="nodeId"></param>
         /// <param name="wantedKey"></param>
-        public FindValue(Id nodeId, Id wantedKey) : base(nodeId)
+        /// <param name="conversationId"></param>
+        public FindValue(Id nodeId, Id wantedKey, Id conversationId = null) : base(nodeId, conversationId)
         {
             Key = wantedKey;
         }

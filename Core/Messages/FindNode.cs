@@ -8,14 +8,15 @@ namespace Kademliath.Core.Messages
     [MessagePackObject]
     public class FindNode : Request
     {
-       [Key(2)] public Id Target { get; }
+        [Key(2)] public Id Target { get; }
 
         /// <summary>
         /// Make a new FIND_NODE message
         /// </summary>
         /// <param name="nodeId"></param>
         /// <param name="toFind"></param>
-        public FindNode(Id nodeId, Id toFind) : base(nodeId)
+        /// <param name="conversationId"></param>
+        public FindNode(Id nodeId, Id toFind, Id conversationId = null) : base(nodeId, conversationId)
         {
             Target = toFind;
         }

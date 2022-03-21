@@ -12,10 +12,11 @@ namespace Kademliath.Core.Messages
         /// Make a new message, recording the sender's Id.
         /// </summary>
         /// <param name="senderId"></param>
-        protected Request(Id senderId)
+        /// <param name="conversationId"></param>
+        protected Request(Id senderId, Id conversationId = null)
         {
             SenderId = senderId;
-            ConversationId = new Id();
+            ConversationId = conversationId ?? new Id();
         }
     }
 }

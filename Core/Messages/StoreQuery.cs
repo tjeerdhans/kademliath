@@ -24,8 +24,10 @@ namespace Kademliath.Core.Messages
         /// <param name="hash">A hash of the data value</param>
         /// <param name="originalPublicationTimestamp"></param>
         /// <param name="dataSize"></param>
-        public StoreQuery(Id nodeId, Id toStore, Id hash, DateTime originalPublicationTimestamp, int dataSize) :
-            base(nodeId)
+        /// <param name="conversationId"></param>
+        public StoreQuery(Id nodeId, Id toStore, Id hash, DateTime originalPublicationTimestamp, int dataSize,
+            Id conversationId = null) :
+            base(nodeId, conversationId)
         {
             Key = toStore;
             DataHash = hash;
