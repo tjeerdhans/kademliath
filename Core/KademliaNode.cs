@@ -647,11 +647,11 @@ namespace Kademliath.Core
         private bool SyncPing(IPEndPoint targetEndPoint)
         {
             // Send message
-            var now = DateTime.Now;
+            var waitUntil = DateTime.Now.Add(_maxSyncWait);
             var ping = new Ping(NodeId);
             SendMessage(targetEndPoint, ping);
 
-            while (DateTime.Now < now.Add(_maxSyncWait))
+            while (DateTime.Now < waitUntil)
             {
                 // If we got a response, send it up
                 var pong = GetCachedResponse<Pong>(ping.ConversationId);
@@ -1005,7 +1005,7 @@ namespace Kademliath.Core
             // encoder.Serialize(ms, message);
             // byte[] messageData = ms.GetBuffer();
 
-            Log($"sending {message.GetName()} to {destination}");
+            Log($"sending {message.GetName()} to {destination} in conversation {message.ConversationId}");
 
             _udpClient.Send(messageData, messageData.Length, destination);
         }
