@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json.schemastore.org/launchsettings.json",
+  "profiles": {
+    "Node master": {
+      "commandName": "Project",
+      "commandLineArgs": "--master",
+      "environmentVariables": {
+        
+      }
+    },
+    "Node": {
+      "commandName": "Project",
+      "environmentVariables": {
+
+      }
+    },
+    "Node seed": {
+      "commandName": "Project",
+      "commandLineArgs": "--seed",
+      "environmentVariables": {
+
+      }
+    }
+  }
+}

@@ -1,17 +1,17 @@
-﻿using System;
+﻿using MessagePack;
 
-namespace Kademliath.Core.Messages
+namespace Kademliath.Core.Messages.Responses
 {
     /// <summary>
     /// A reply to a store query.
     /// Say if we're willing to store the data, and if we already have it.
     /// </summary>
-    [Serializable]
+    [MessagePackObject]
     public class StoreResponse : Response
     {
-        public bool ShouldSendData { get; }
+        [Key(2)] public bool ShouldSendData { get; }
 
-        public StoreResponse(Id nodeId, StoreQuery query, bool shouldSendData) : base(nodeId, query)
+        public StoreResponse(Id nodeId, Id respondingToConversationId, bool shouldSendData) : base(nodeId, respondingToConversationId)
         {
             ShouldSendData = shouldSendData;
         }

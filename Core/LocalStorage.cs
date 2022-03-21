@@ -2,9 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
-using System.Runtime.Serialization;
-using System.Runtime.Serialization.Formatters.Binary;
 using System.Threading;
+using MessagePack;
 
 namespace Kademliath.Core
 {
@@ -30,7 +29,6 @@ namespace Kademliath.Core
 
         private const string IndexExtension = ".index";
         private const string DataExtension = ".dat";
-        private static readonly IFormatter Coder = new BinaryFormatter(); // For disk storage
         private static readonly TimeSpan SaveInterval = new TimeSpan(0, 10, 0);
 
         /// <summary>
@@ -40,8 +38,8 @@ namespace Kademliath.Core
         /// </summary>
         public LocalStorage()
         {
-            string assembly = Assembly.GetEntryAssembly().GetName().Name;
-            string libName = Assembly.GetExecutingAssembly().GetName().Name;
+            var assembly = Assembly.GetEntryAssembly().GetName().Name;
+            var libName = Assembly.GetExecutingAssembly().GetName().Name;
 
             // Check the mutex to see if we get the disk storage
             string mutexName = libName + "-" + assembly + "-storage";
@@ -70,9 +68,9 @@ namespace Kademliath.Core
                 try
                 {
                     // Load stuff from disk
-                    FileStream fs = File.OpenRead(_indexFilename);
-                    _store = (SortedList<Id, SortedList<Id, Entry>>) Coder.Deserialize(fs);
-                    fs.Close();
+                    using var fs = File.OpenRead(_indexFilename);
+                    _store = (SortedList<Id, SortedList<Id, Entry>>)MessagePackSerializer.Typeless.Deserialize(fs);
+                    // Coder.Deserialize(fs);
                 }
                 catch (Exception ex)
                 {
@@ -87,8 +85,10 @@ namespace Kademliath.Core
             }
 
             // Start the index autosave thread
-            _saveThread = new Thread(BackgroundSave);
-            _saveThread.IsBackground = true;
+            _saveThread = new Thread(BackgroundSave)
+            {
+                IsBackground = true
+            };
             _saveThread.Start();
         }
 
@@ -161,9 +161,9 @@ namespace Kademliath.Core
                 // Save
                 lock (_store)
                 {
-                    FileStream fs = File.OpenWrite(_indexFilename);
-                    Coder.Serialize(fs, _store);
-                    fs.Close();
+                    using var fs = File.OpenWrite(_indexFilename);
+                    MessagePackSerializer.Typeless.Serialize(fs, _store);
+                    //Coder.Serialize(fs, _store);
                 }
 
                 Console.WriteLine("Datastore index saved");
@@ -183,11 +183,11 @@ namespace Kademliath.Core
         /// <param name="val"></param>
         /// <param name="timestamp"></param>
         /// <param name="keepFor"></param>
-        public void Put(Id key, Id hash, object val, DateTime timestamp, TimeSpan keepFor)
+        public void Put(Id key, Id hash, byte[] val, DateTime timestamp, TimeSpan keepFor)
         {
             // Write the file
             CreatePath(Path.GetDirectoryName(PathFor(key, hash)));
-            File.WriteAllBytes(PathFor(key, hash), val.ToByteArray());
+            File.WriteAllBytes(PathFor(key, hash), val);
 
 
             // Record its existence
@@ -257,9 +257,9 @@ namespace Kademliath.Core
         /// </summary>
         /// <param name="key"></param>
         /// <returns></returns>
-        public List<object> Get(Id key)
+        public List<byte[]> Get(Id key)
         {
-            List<object> toReturn = new List<object>();
+            List<byte[]> toReturn = new List<byte[]>();
             lock (_store)
             {
                 if (ContainsKey(key))
@@ -267,7 +267,7 @@ namespace Kademliath.Core
                     foreach (Id hash in _store[key].Keys)
                     {
                         // Load the value and add it to the list
-                        toReturn.Add(ObjectUtils.ByteArrayToObject(File.ReadAllBytes(PathFor(key, hash))));
+                        toReturn.Add(File.ReadAllBytes(PathFor(key, hash)));
                     }
                 }
             }
@@ -281,13 +281,13 @@ namespace Kademliath.Core
         /// <param name="key"></param>
         /// <param name="hash"></param>
         /// <returns></returns>
-        public object Get(Id key, Id hash)
+        public byte[] Get(Id key, Id hash)
         {
             lock (_store)
             {
                 if (Contains(key, hash))
                 {
-                    ObjectUtils.ByteArrayToObject(File.ReadAllBytes(PathFor(key, hash)));
+                    File.ReadAllBytes(PathFor(key, hash));
                 }
             }
 

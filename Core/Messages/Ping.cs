@@ -1,12 +1,13 @@
 ﻿using System;
+using MessagePack;
 
 namespace Kademliath.Core.Messages
 {
 	/// <summary>
 	/// Represents a ping message, used to see if a remote node is up.
 	/// </summary>
-	[Serializable]
-	public class Ping : Message
+	[MessagePackObject]
+	public class Ping : Request
 	{
 		public Ping(Id senderId) : base(senderId)
 		{

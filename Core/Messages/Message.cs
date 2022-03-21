@@ -1,42 +1,25 @@
-using System;
+using Kademliath.Core.Messages.Responses;
+using MessagePack;
 
-namespace Kademliath.Core.Messages
+namespace Kademliath.Core.Messages;
+
+[Union(0, typeof(Request))]
+[Union(1, typeof(Response))]
+[Union(2, typeof(Ping))]
+[Union(3, typeof(StoreQuery))]
+[Union(4, typeof(FindValue))]
+[Union(5, typeof(FindNode))]
+[Union(7, typeof(Pong))]
+[Union(8, typeof(StoreData))]
+[Union(9, typeof(StoreResponse))]
+[Union(10, typeof(FindValueDataResponse))]
+[Union(11, typeof(FindValueContactResponse))]
+[Union(12, typeof(FindNodeResponse))]
+[MessagePackObject]
+public abstract class Message
 {
-    /// <summary>
-    /// Represents a generic DHT RPC message
-    /// </summary>
-    [Serializable]
-    public abstract class Message
-    {
-        public Id SenderId { get;}
-        public Id ConversationId { get; }
+    [Key(0)] public Id SenderId { get; protected init; }
+    [Key(1)] public Id ConversationId { get; protected init; }
 
-		/// <summary>
-        /// Make a new message, recording the sender's Id.
-        /// </summary>
-        /// <param name="senderId"></param>
-        protected Message(Id senderId) {
-            SenderId = senderId;
-            ConversationId = new Id();
-        }
-		
-        /// <summary>
-        /// Make a new message in a given conversation.
-        /// </summary>
-        /// <param name="senderId"></param>
-        /// <param name="conversationId"></param>
-        protected Message(Id senderId, Id conversationId) {
-            SenderId = senderId;
-            ConversationId = conversationId;
-        }
-
-        /// <summary>
-        /// Get the name of the message.
-        /// </summary>
-        /// <returns></returns>
-        public virtual string GetName()
-        {
-            throw new NotImplementedException();
-        }		
-    }
+    public abstract string GetName();
 }

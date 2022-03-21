@@ -1,23 +1,24 @@
 ﻿using System;
 using System.Collections.Generic;
+using MessagePack;
 
-namespace Kademliath.Core.Messages
+namespace Kademliath.Core.Messages.Responses
 {
     /// <summary>
     /// Send data in reply to a FindValue
     /// </summary>
-    [Serializable]
+    [MessagePackObject]
     public class FindValueDataResponse : Response
     {
-        public List<object> Values { get; }
+        [Key(2)] public List<byte[]> Values { get; }
 
         /// <summary>
         /// Make a new response.
         /// </summary>
         /// <param name="nodeId"></param>
-        /// <param name="request"></param>
+        /// <param name="respondingToConversationId"></param>
         /// <param name="data"></param>
-        public FindValueDataResponse(Id nodeId, FindValue request, List<object> data) : base(nodeId, request)
+        public FindValueDataResponse(Id nodeId, Id respondingToConversationId, List<byte[]> data) : base(nodeId, respondingToConversationId)
         {
             Values = data;
         }

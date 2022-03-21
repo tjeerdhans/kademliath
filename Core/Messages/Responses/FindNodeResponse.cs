@@ -1,18 +1,20 @@
 ﻿using System;
 using System.Collections.Generic;
+using MessagePack;
 
-namespace Kademliath.Core.Messages
+namespace Kademliath.Core.Messages.Responses
 {
     /// <summary>
     /// A response to a FindNode message.
     /// Contains a list of Contacts.
     /// </summary>
-    [Serializable]
+    [MessagePackObject]
     public class FindNodeResponse : Response
     {
-        public List<Contact> RecommendedContacts { get; }
+        [Key(2)] public List<Contact> RecommendedContacts { get; }
 
-        public FindNodeResponse(Id nodeId, FindNode request, List<Contact> recommended) : base(nodeId, request)
+        public FindNodeResponse(Id nodeId, Id respondingToConversationId, List<Contact> recommended) : base(nodeId,
+            respondingToConversationId)
         {
             RecommendedContacts = recommended;
         }

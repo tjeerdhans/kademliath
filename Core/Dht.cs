@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Text;
 
 namespace Kademliath.Core
 {
@@ -20,8 +21,17 @@ namespace Kademliath.Core
         private const string RegisterFragment = "nodes";
 
         private readonly KademliaNode _dhtNode;
-
         private bool _debug;
+
+        public bool Debug
+        {
+            get => _debug;
+            set
+            {
+                _debug = value;
+                _dhtNode.Debug = value;
+            }
+        }
 
         /// <summary>
         /// Create a new DHT. It should connect to the default overlay network
@@ -50,9 +60,6 @@ namespace Kademliath.Core
             Console.WriteLine("We are on UDP port " + ourPort);
 
             // Bootstrap with some nodes
-            var downloader = new WebClient();
-            downloader.Proxy = null; // TODO: Let client specify proxy
-            //downloader.Proxy = new WebProxy("www-proxy.nl.int.atosorigin.com:8080", true);
             Console.WriteLine("Getting bootstrap list..");
             // TODO: Handle 404, etc.
             var nodeList = new List<Node>();
@@ -75,7 +82,7 @@ namespace Kademliath.Core
             }
             catch (Exception)
             {
-                nodeList.AddRange(new[] {new Node {HostAddress = "127.0.0.1", HostPort = 8810}});
+                nodeList.AddRange(new[] { new Node { HostAddress = "127.0.0.1", HostPort = 8810 } });
             }
 
             foreach (var node in nodeList)
@@ -112,7 +119,7 @@ namespace Kademliath.Core
                         using (var client = new HttpClient())
                         {
                             var unused = client
-                                .PostAsJsonAsync(overlayUrl + RegisterFragment, new Node {HostPort = ourPort}).Result;
+                                .PostAsJsonAsync(overlayUrl + RegisterFragment, new Node { HostPort = ourPort }).Result;
                         }
 
                         Console.WriteLine("Announced presence.");
@@ -147,7 +154,7 @@ namespace Kademliath.Core
         /// </summary>
         /// <param name="key"></param>
         /// <returns></returns>
-        public IList<object> GetAll(string key)
+        public IList<byte[]> GetAll(string key)
         {
             return _dhtNode.Get(Id.Hash(key));
         }
@@ -157,18 +164,13 @@ namespace Kademliath.Core
         /// </summary>
         /// <param name="key">Can be any length, is hashed internally.</param>
         /// <param name="val">Can be up to and including MaxSize() UTF-8 characters.</param>
-        public void Put(string key, object val)
+        public void Put(string key, byte[] val)
         {
             var keyHash = Id.Hash(key);
-            Log($"Putting {key}({keyHash}):{val}");
+            Log($"Putting {key}({keyHash}):{Encoding.UTF8.GetString(val)}");
             _dhtNode.Put(keyHash, val);
         }
 
-        public void EnableDebug()
-        {
-            _debug = true;
-            _dhtNode.EnableDebug();
-        }
 
         /// <summary>
         /// Log debug messages, if debugging is enabled.

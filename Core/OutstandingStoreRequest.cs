@@ -8,7 +8,7 @@ namespace Kademliath.Core
     internal struct OutstandingStoreRequest
     {
         public Id Key;
-        public object Val;
+        public byte[] Val;
         public DateTime Publication;
         public DateTime Sent;
     }

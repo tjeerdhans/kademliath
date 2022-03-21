@@ -1,12 +1,11 @@
 ﻿using System;
-using System.IO;
 using System.Linq;
 using System.Net.NetworkInformation;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
-using System.Web;
+using MessagePack;
 
 namespace Kademliath.Core
 {
@@ -14,12 +13,12 @@ namespace Kademliath.Core
     /// Represents a number of <see cref="IdLengthInBits"/> bits which is used as a nodeId and as a key for the DHT.
     /// Ids are immutable.
     /// </summary>
-    [Serializable]
+    [MessagePackObject]
     public class Id : IComparable
     {
-        public const int IdLengthInBits = IdLengthInBytes * 8;
+        [IgnoreMember] public const int IdLengthInBits = IdLengthInBytes * 8;
         private const int IdLengthInBytes = 20;
-        private readonly byte[] _data;
+        [Key(0)] public byte[] Data { get; init; }
 
         // We want to be able to generate random Ids without timing issues.
         private static readonly Random Rnd = new Random();
@@ -33,8 +32,8 @@ namespace Kademliath.Core
         /// </summary>
         public Id()
         {
-            _data = new byte[IdLengthInBytes];
-            Rnd.NextBytes(_data);
+            Data = new byte[IdLengthInBytes];
+            Rnd.NextBytes(Data);
         }
 
         /// <summary>
@@ -45,8 +44,8 @@ namespace Kademliath.Core
         {
             if (data.Length == IdLengthInBytes)
             {
-                _data = new byte[IdLengthInBytes];
-                data.CopyTo(_data, 0); // Copy the array into us.
+                Data = new byte[IdLengthInBytes];
+                data.CopyTo(Data, 0); // Copy the array into us.
             }
             else
             {
@@ -61,8 +60,8 @@ namespace Kademliath.Core
         /// <returns></returns>
         public static Id Hash(string key)
         {
-            HashAlgorithm hashAlgorithm = new SHA1CryptoServiceProvider();
-            return new Id(hashAlgorithm.ComputeHash(key.ToByteArray()));
+            var hashAlgorithm = SHA1.Create();
+            return new Id(hashAlgorithm.ComputeHash( Encoding.UTF8.GetBytes(key)));
         }
 
         /// <summary>
@@ -70,10 +69,10 @@ namespace Kademliath.Core
         /// </summary>
         /// <param name="key"></param>
         /// <returns></returns>
-        public static Id Hash(object key)
+        public static Id Hash(byte[] key)
         {
-            HashAlgorithm hashAlgorithm = new SHA1CryptoServiceProvider();
-            return new Id(hashAlgorithm.ComputeHash(key.ToByteArray()));
+            var hashAlgorithm = SHA1.Create();
+            return new Id(hashAlgorithm.ComputeHash(key));
         }
 
         /// <summary>
@@ -89,7 +88,7 @@ namespace Kademliath.Core
             // Do each byte in turn
             for (int i = 0; i < IdLengthInBytes; i++)
             {
-                xoredData[i] = (byte) (a._data[i] ^ b._data[i]);
+                xoredData[i] = (byte)(a.Data[i] ^ b.Data[i]);
             }
 
             return new Id(xoredData);
@@ -99,12 +98,12 @@ namespace Kademliath.Core
         {
             for (var i = 0; i < IdLengthInBytes; i++)
             {
-                if (a._data[i] < b._data[i])
+                if (a.Data[i] < b.Data[i])
                 {
                     return true; // If first mismatch is a < b, a < b
                 }
 
-                if (a._data[i] > b._data[i])
+                if (a.Data[i] > b.Data[i])
                 {
                     return false; // If first mismatch is a > b, a > b
                 }
@@ -117,12 +116,12 @@ namespace Kademliath.Core
         {
             for (var i = 0; i < IdLengthInBytes; i++)
             {
-                if (a._data[i] < b._data[i])
+                if (a.Data[i] < b.Data[i])
                 {
                     return false; // If first mismatch is a < b, a < b
                 }
 
-                if (a._data[i] > b._data[i])
+                if (a.Data[i] > b.Data[i])
                 {
                     return true; // If first mismatch is a > b, a > b
                 }
@@ -146,7 +145,7 @@ namespace Kademliath.Core
 
             for (var i = 0; i < IdLengthInBytes; i++)
             {
-                if (a._data[i] != b._data[i])
+                if (a.Data[i] != b.Data[i])
                 {
                     // Find the first difference
                     return false;
@@ -172,7 +171,7 @@ namespace Kademliath.Core
                     hash *= 31;
                 }
 
-                hash ^= _data[i];
+                hash ^= Data[i];
             }
 
             return hash;
@@ -201,7 +200,7 @@ namespace Kademliath.Core
 
             // Subtract 8 for every zero byte from the right
             int i = IdLengthInBytes - 1;
-            while (i >= 0 && differingBits._data[i] == 0)
+            while (i >= 0 && differingBits.Data[i] == 0)
             {
                 differAt -= 8;
                 i--;
@@ -210,7 +209,7 @@ namespace Kademliath.Core
             // Subtract 1 for every zero bit from the right
             int j = 0;
             // 1 << j = pow(2, j)
-            while (j < 8 && (differingBits._data[i] & (1 << j)) == 0)
+            while (j < 8 && (differingBits.Data[i] & (1 << j)) == 0)
             {
                 j++;
                 differAt--;
@@ -227,7 +226,7 @@ namespace Kademliath.Core
         public Id RandomizeBeyond(int bit)
         {
             var randomized = new byte[IdLengthInBytes];
-            _data.CopyTo(randomized, 0);
+            Data.CopyTo(randomized, 0);
 
             FlipBit(randomized, bit); // Invert pivot bit
 
@@ -253,9 +252,9 @@ namespace Kademliath.Core
         {
             int byteIndex = bit / 8;
             int byteBit = bit % 8;
-            byte mask = (byte) (1 << byteBit);
+            byte mask = (byte)(1 << byteBit);
 
-            data[byteIndex] = (byte) (data[byteIndex] ^ mask); // Use a mask to flip the bit
+            data[byteIndex] = (byte)(data[byteIndex] ^ mask); // Use a mask to flip the bit
         }
 
         /// <summary>
@@ -303,7 +302,8 @@ namespace Kademliath.Core
 
         public override string ToString()
         {
-            return Convert.ToBase64String(_data);
+            return Convert.ToHexString(Data);
+            //return Convert.ToBase64String(_data);
         }
 
         /// <summary>
@@ -312,14 +312,15 @@ namespace Kademliath.Core
         /// <returns></returns>
         public string ToPathString()
         {
-            var result = Convert.ToBase64String(_data);
-
-            foreach (var c in Path.GetInvalidFileNameChars().Union(Path.GetInvalidFileNameChars()))
-            {
-                result = result.Replace(c, '-');
-            }
-
-            return result;
+            return Convert.ToHexString(Data);
+            // var result = Convert.ToBase64String(_data);
+            //
+            // foreach (var c in Path.GetInvalidFileNameChars().Union(Path.GetInvalidFileNameChars()))
+            // {
+            //     result = result.Replace(c, '-');
+            // }
+            //
+            // return result;
         }
 
         public int CompareTo(object obj)

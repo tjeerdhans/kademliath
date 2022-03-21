@@ -1,13 +1,12 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.IO;
 using System.Net;
 using System.Net.Sockets;
-using System.Runtime.Serialization;
-using System.Runtime.Serialization.Formatters.Binary;
 using System.Threading;
 using Kademliath.Core.Messages;
+using Kademliath.Core.Messages.Responses;
+using MessagePack;
 
 namespace Kademliath.Core
 {
@@ -31,7 +30,7 @@ namespace Kademliath.Core
         // We want to be able to synchronously wait for responses, so we have other threads put them in this cache.
         // We also need to discard old ones.
         private readonly SortedList<Id, CachedResponse> _responseCache;
-        private readonly TimeSpan _maxSyncWait = TimeSpan.FromMilliseconds(500);
+        private readonly TimeSpan _maxSyncWait = TimeSpan.FromMilliseconds(1500);
 
         private readonly LocalStorage _storage; // Keep our key/value pairs
 
@@ -89,7 +88,7 @@ namespace Kademliath.Core
         public event MessageEventHandler<StoreResponse> GotStoreResponse;
         public event MessageEventHandler<StoreData> GotStoreData;
 
-        private bool _debug;
+        public bool Debug = true;
 
         // Thread management 
         private bool _threadsRun = true;
@@ -173,34 +172,38 @@ namespace Kademliath.Core
             WireUpEventHandlers();
 
             Connect();
-            
-            StartWorkerThreads();          
+
+            StartWorkerThreads();
         }
 
         private void Connect()
         {
             _udpClient = new UdpClient();
+            //_udpClient = new UdpClient(_port, AddressFamily.InterNetworkV6);
+            //_udpClient.Client.DualMode = true;
 
             // create a socket that listens on all addresses (IPv4 _and_ IPv6)
             // http://blogs.msdn.com/b/malarch/archive/2005/11/18/494769.aspx
-            Socket sock = new Socket(AddressFamily.InterNetworkV6, SocketType.Dgram, ProtocolType.Udp);
-            sock.SetSocketOption(SocketOptionLevel.IPv6, (SocketOptionName) 27, 0);
-            sock.Bind(new IPEndPoint(IPAddress.IPv6Any, _port));
-            _udpClient.Client = sock;
+            var socket = new Socket(SocketType.Dgram, ProtocolType.Udp);
+            //Socket socket = new Socket(AddressFamily.InterNetworkV6, SocketType.Dgram, ProtocolType.Udp);
+            //socket.SetSocketOption(SocketOptionLevel.IPv6, SocketOptionName.IPv6Only, false);
+            socket.Bind(new IPEndPoint(IPAddress.IPv6Any, _port));
+            _udpClient.Client = socket;
+            //Log($"Socket dualmode: {_udpClient.Client.DualMode}");
         }
 
         private void StartWorkerThreads()
         {
-            _bucketMinderThread = new Thread(MindBuckets) {IsBackground = true};
+            _bucketMinderThread = new Thread(MindBuckets) { IsBackground = true };
             _bucketMinderThread.Start();
 
-            _conversationMinderThread = new Thread(MindCaches) {IsBackground = true};
+            _conversationMinderThread = new Thread(MindCaches) { IsBackground = true };
             _conversationMinderThread.Start();
 
-            _udpClientMinderThread = new Thread(MindUdpClient) {IsBackground = true};
+            _udpClientMinderThread = new Thread(MindUdpClient) { IsBackground = true };
             _udpClientMinderThread.Start();
 
-            _maintenanceMinderThread = new Thread(MindMaintenance) {IsBackground = true};
+            _maintenanceMinderThread = new Thread(MindMaintenance) { IsBackground = true };
             _maintenanceMinderThread.Start();
         }
 
@@ -226,7 +229,6 @@ namespace Kademliath.Core
         {
             // Send a blocking ping.
             var success = SyncPing(targetEndPoint);
-            //Thread.Sleep(CheckInterval); // Wait for them to notice us
             return success;
         }
 
@@ -272,20 +274,12 @@ namespace Kademliath.Core
         #region Interface
 
         /// <summary>
-        /// Enables debugging output for the node.
-        /// </summary>
-        public void EnableDebug()
-        {
-            _debug = true;
-        }
-
-        /// <summary>
         /// Return the port we listen on.
         /// </summary>
         /// <returns></returns>
         public int GetPort()
         {
-            return ((IPEndPoint) _udpClient.Client.LocalEndPoint).Port;
+            return ((IPEndPoint)_udpClient.Client.LocalEndPoint).Port;
         }
 
         /// <summary>
@@ -293,7 +287,7 @@ namespace Kademliath.Core
         /// </summary>
         /// <param name="key"></param>
         /// <param name="val"></param>
-        public void Put(Id key, object val)
+        public void Put(Id key, byte[] val)
         {
             IterativeStore(key, val, DateTime.Now);
             // TODO: republish
@@ -304,7 +298,7 @@ namespace Kademliath.Core
         /// </summary>
         /// <param name="key"></param>
         /// <returns></returns>
-        public IList<object> Get(Id key)
+        public IList<byte[]> Get(Id key)
         {
             if (_storage.ContainsKey(key))
             {
@@ -316,7 +310,7 @@ namespace Kademliath.Core
             if (found == null)
             {
                 // Empty list for nothing found
-                return new List<object>();
+                return new List<byte[]>();
             }
             else
             {
@@ -354,7 +348,7 @@ namespace Kademliath.Core
                             {
                                 // ReSharper disable once PossibleInvalidOperationException
                                 IterativeStore(key, _storage.Get(key, valHash),
-                                    (DateTime) _storage.GetPublicationTime(key, valHash));
+                                    (DateTime)_storage.GetPublicationTime(key, valHash));
                             }
                             catch (Exception ex)
                             {
@@ -397,7 +391,7 @@ namespace Kademliath.Core
         /// <param name="key"></param>
         /// <param name="val"></param>
         /// <param name="originalInsertion"></param>
-        private void IterativeStore(Id key, object val, DateTime originalInsertion)
+        private void IterativeStore(Id key, byte[] val, DateTime originalInsertion)
         {
             // Find the K closest nodes to the key
             IList<Contact> closest = IterativeFindNode(key);
@@ -428,7 +422,7 @@ namespace Kademliath.Core
         /// <param name="target"></param>
         /// <param name="close"></param>
         /// <returns></returns>
-        private IList<object> IterativeFindValue(Id target, out IList<Contact> close)
+        private IList<byte[]> IterativeFindValue(Id target, out IList<Contact> close)
         {
             close = IterativeFind(target, true, out var found);
             return found;
@@ -440,9 +434,9 @@ namespace Kademliath.Core
         /// </summary>
         /// <param name="target"></param>
         /// <param name="getValue">true for FindValue, false for FindNode</param>
-        /// <param name="vals"></param>
+        /// <param name="values"></param>
         /// <returns></returns>
-        private IList<Contact> IterativeFind(Id target, bool getValue, out IList<object> vals)
+        private IList<Contact> IterativeFind(Id target, bool getValue, out IList<byte[]> values)
         {
             // Log the lookup
             if (target != NodeId)
@@ -452,8 +446,8 @@ namespace Kademliath.Core
 
             // Get the alpha closest nodes to the target
             // TODO: Should actually pick from a certain bucket.
-            SortedList<Id, Contact> shortlist = new SortedList<Id, Contact>();
-            foreach (Contact c in _buckets.CloseContacts(Parallelism, target, null))
+            var shortlist = new SortedList<Id, Contact>();
+            foreach (var c in _buckets.CloseContacts(Parallelism, target, null))
             {
                 shortlist.Add(c.NodeId, c);
             }
@@ -462,7 +456,7 @@ namespace Kademliath.Core
 
             // Make an initial guess for the closest node
             Contact closest = null;
-            foreach (Contact toAsk in shortlist.Values)
+            foreach (var toAsk in shortlist.Values)
             {
                 if (closest == null || (toAsk.NodeId ^ target) < (closest.NodeId ^ target))
                 {
@@ -487,7 +481,7 @@ namespace Kademliath.Core
                         if (returnedValues != null)
                         {
                             // We found it! Pass it up!
-                            vals = returnedValues;
+                            values = returnedValues;
                             // But first, we have to store it at the closest node that doesn't have it yet.
                             // TODO: Actually do that. Not doing it now since we don't have the publish time.
                             return null;
@@ -520,7 +514,7 @@ namespace Kademliath.Core
                     }
                     else
                     {
-                        // Node down. Remove from shortlist and adjust loop indicies
+                        // Node down. Remove from shortlist and adjust loop indices
                         shortlist.RemoveAt(i);
                         i--;
                         shortlistIndex--;
@@ -537,7 +531,7 @@ namespace Kademliath.Core
                 shortlist.RemoveAt(shortlist.Count - 1);
             }
 
-            vals = null;
+            values = null;
             return shortlist.Values;
         }
 
@@ -553,10 +547,10 @@ namespace Kademliath.Core
         /// <param name="key"></param>
         /// <param name="val"></param>
         /// <param name="originalInsertion"></param>
-        private void SyncStore(IPEndPoint storeAt, Id key, object val, DateTime originalInsertion)
+        private void SyncStore(IPEndPoint storeAt, Id key, byte[] val, DateTime originalInsertion)
         {
             // Make a message
-            var storeIt = new StoreQuery(NodeId, key, Id.Hash(val), originalInsertion, val.ToByteArray().Length);
+            var storeIt = new StoreQuery(NodeId, key, Id.Hash(val), originalInsertion, val.Length);
 
             // Record having sent it
             var req = new OutstandingStoreRequest
@@ -582,7 +576,7 @@ namespace Kademliath.Core
         {
             // Send message
             DateTime called = DateTime.Now;
-            Message question = new FindNode(NodeId, toFind);
+            Request question = new FindNode(NodeId, toFind);
             SendMessage(ask, question);
 
             while (DateTime.Now < called.Add(_maxSyncWait))
@@ -608,9 +602,9 @@ namespace Kademliath.Core
         /// </summary>
         /// <param name="ask"></param>
         /// <param name="toFind"></param>
-        /// <param name="val"></param>
+        /// <param name="values"></param>
         /// <returns></returns>
-        private List<Contact> SyncFindValue(IPEndPoint ask, Id toFind, out IList<object> val)
+        private List<Contact> SyncFindValue(IPEndPoint ask, Id toFind, out IList<byte[]> values)
         {
             // Send message
             var called = DateTime.Now;
@@ -624,7 +618,7 @@ namespace Kademliath.Core
                 if (dataResp != null)
                 {
                     // Send it out and return null!
-                    val = dataResp.Values;
+                    values = dataResp.Values;
                     return null;
                 }
 
@@ -633,7 +627,7 @@ namespace Kademliath.Core
                     GetCachedResponse<FindValueContactResponse>(question.ConversationId);
                 if (resp != null)
                 {
-                    val = null;
+                    values = null;
                     return resp.Contacts;
                 }
 
@@ -641,7 +635,7 @@ namespace Kademliath.Core
             }
 
             // Nothing in time
-            val = null;
+            values = null;
             return null;
         }
 
@@ -681,10 +675,10 @@ namespace Kademliath.Core
         /// Record every contact we see in our cache, if applicable. 
         /// </summary>
         /// <param name="sender"></param>
-        /// <param name="message"></param>
-        private void HandleMessage(Contact sender, Message message)
+        /// <param name="request"></param>
+        private void HandleMessage(Contact sender, Message request)
         {
-            Log($"got {message.GetName()} from {message.SenderId}");
+            Log($"got {request.GetName()} from {request.SenderId} in conversation {request.ConversationId}");
             SawContact(sender);
         }
 
@@ -695,7 +689,8 @@ namespace Kademliath.Core
         /// <param name="response"></param>
         private void CacheResponse(Contact sender, Response response)
         {
-            var entry = new CachedResponse {Arrived = DateTime.Now, Response = response};
+            Log($"Caching {response.GetName()} from {response.SenderId}  in conversation {response.ConversationId}");
+            var entry = new CachedResponse { Arrived = DateTime.Now, Response = response };
             lock (_responseCache)
             {
                 _responseCache[response.ConversationId] = entry;
@@ -730,7 +725,7 @@ namespace Kademliath.Core
         /// </summary>
         private void HandlePing(Contact sender, Ping ping)
         {
-            var pong = new Pong(NodeId, ping);
+            var pong = new Pong(NodeId, ping.ConversationId);
 
             SendMessage(sender.NodeEndPoint, pong);
         }
@@ -744,7 +739,7 @@ namespace Kademliath.Core
         private void HandleFindNode(Contact sender, FindNode request)
         {
             List<Contact> closeNodes = _buckets.CloseContacts(request.Target, sender.NodeId);
-            var response = new FindNodeResponse(NodeId, request, closeNodes);
+            var response = new FindNodeResponse(NodeId, request.ConversationId, closeNodes);
             SendMessage(sender.NodeEndPoint, response);
         }
 
@@ -758,13 +753,13 @@ namespace Kademliath.Core
             if (_storage.ContainsKey(request.Key))
             {
                 var values = _storage.Get(request.Key);
-                var response = new FindValueDataResponse(NodeId, request, values);
+                var response = new FindValueDataResponse(NodeId, request.ConversationId, values);
                 SendMessage(sender.NodeEndPoint, response);
             }
             else
             {
                 List<Contact> closeNodes = _buckets.CloseContacts(request.Key, sender.NodeId);
-                var response = new FindValueContactResponse(NodeId, request, closeNodes);
+                var response = new FindValueContactResponse(NodeId, request.ConversationId, closeNodes);
                 SendMessage(sender.NodeEndPoint, response);
             }
         }
@@ -783,7 +778,7 @@ namespace Kademliath.Core
             if (!_storage.Contains(key, valHash))
             {
                 _acceptedStoreRequests[request.ConversationId] = DateTime.Now; // Record that we accepted it
-                SendMessage(sender.NodeEndPoint, new StoreResponse(NodeId, request, true));
+                SendMessage(sender.NodeEndPoint, new StoreResponse(NodeId, request.ConversationId, true));
             }
             else if (request.GetPublicationTimeUtc() > _storage.GetPublicationTime(key, valHash)
                      && request.GetPublicationTimeUtc() < DateTime.Now.ToUniversalTime().Add(_maxClockSkew))
@@ -837,7 +832,7 @@ namespace Kademliath.Core
                     // Send along the data and remove it from the list
                     var toStore = _sentStoreRequests[response.ConversationId];
                     SendMessage(sender.NodeEndPoint,
-                        new StoreData(NodeId, response, toStore.Key, Id.Hash(toStore.Val), toStore.Val,
+                        new StoreData(NodeId, response.ConversationId, toStore.Key, Id.Hash(toStore.Val), toStore.Val,
                             toStore.Publication));
                     _sentStoreRequests.Remove(response.ConversationId);
                 }
@@ -913,12 +908,13 @@ namespace Kademliath.Core
                     var data = _udpClient.Receive(ref sender);
 
                     // Decode the message
-                    var memoryStream = new MemoryStream(data);
-                    var binaryFormatter = new BinaryFormatter();
+                    //var memoryStream = new MemoryStream(data);
                     object incomingMessage = null;
                     try
                     {
-                        incomingMessage = binaryFormatter.Deserialize(memoryStream);
+                        incomingMessage =
+                            MessagePackSerializer.Deserialize<Message>(data);
+                        // binaryFormatter.Deserialize(memoryStream);
                     }
                     catch (Exception)
                     {
@@ -926,7 +922,7 @@ namespace Kademliath.Core
                     }
 
                     // Process the message
-                    if (incomingMessage != null && incomingMessage is Message msg)
+                    if (incomingMessage is Message msg)
                     {
                         DispatchMessageEvents(sender, msg);
                     }
@@ -951,7 +947,7 @@ namespace Kademliath.Core
         private void DispatchMessageEvents(IPEndPoint receivedFrom, Message message)
         {
             // Make a contact for the person who sent it.
-            Contact sender = new Contact(message.SenderId, receivedFrom);
+            Contact sender = new Contact(message.SenderId, receivedFrom.Address.ToString(), receivedFrom.Port);
 
             // Every message gets this one
             GotMessage?.Invoke(sender, message);
@@ -1003,10 +999,11 @@ namespace Kademliath.Core
         private void SendMessage(IPEndPoint destination, Message message)
         {
             // Encode the message
-            var ms = new MemoryStream();
-            IFormatter encoder = new BinaryFormatter();
-            encoder.Serialize(ms, message);
-            byte[] messageData = ms.GetBuffer();
+            //var ms = new MemoryStream();
+            // IFormatter encoder = new BinaryFormatter();
+            var messageData = MessagePackSerializer.Serialize(message);
+            // encoder.Serialize(ms, message);
+            // byte[] messageData = ms.GetBuffer();
 
             Log($"sending {message.GetName()} to {destination}");
 
@@ -1103,8 +1100,8 @@ namespace Kademliath.Core
         /// <param name="message"></param>
         private void Log(string message)
         {
-            if (_debug)
-                Console.WriteLine($"{NodeId} {message}");
+            if (Debug)
+                Console.WriteLine($"[{NodeId}] {message}");
         }
 
         #endregion

@@ -1,20 +1,22 @@
-using System;
+using MessagePack;
 
-namespace Kademliath.Core.Messages
+namespace Kademliath.Core.Messages.Responses
 {
     /// <summary>
     /// Represents a response message, in the same conversation as an original message.
     /// </summary>
-    [Serializable]
+    [MessagePackObject]
     public abstract class Response : Message
     {
         /// <summary>
         /// Make a reply in the same conversation as the given message.
         /// </summary>
         /// <param name="nodeId"></param>
-        /// <param name="respondingTo"></param>
-        protected Response(Id nodeId, Message respondingTo) : base(nodeId, respondingTo.ConversationId)
+        /// <param name="respondingToConversationId"></param>
+        protected Response(Id nodeId, Id respondingToConversationId)
         {
+            SenderId = nodeId;
+            ConversationId = respondingToConversationId;
         }
     }
 }
