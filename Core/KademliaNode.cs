@@ -550,7 +550,7 @@ namespace Kademliath.Core
         private void SyncStore(IPEndPoint storeAt, Id key, byte[] val, DateTime originalInsertion)
         {
             // Make a message
-            var storeIt = new StoreQuery(NodeId, key, Id.Hash(val), originalInsertion, val.Length);
+            var storeIt = new StoreQuery(NodeId, new Id(), key, Id.Hash(val), originalInsertion);
 
             // Record having sent it
             var req = new OutstandingStoreRequest
@@ -576,7 +576,7 @@ namespace Kademliath.Core
         {
             // Send message
             DateTime called = DateTime.Now;
-            Request question = new FindNode(NodeId, toFind);
+            Request question = new FindNode(NodeId, new Id(), toFind);
             SendMessage(ask, question);
 
             while (DateTime.Now < called.Add(_maxSyncWait))
@@ -608,7 +608,7 @@ namespace Kademliath.Core
         {
             // Send message
             var called = DateTime.Now;
-            var question = new FindValue(NodeId, toFind);
+            var question = new FindValue(NodeId, new Id(), toFind);
             SendMessage(ask, question);
 
             while (DateTime.Now < called.Add(_maxSyncWait))
@@ -648,7 +648,7 @@ namespace Kademliath.Core
         {
             // Send message
             var waitUntil = DateTime.Now.Add(_maxSyncWait);
-            var ping = new Ping(NodeId);
+            var ping = new Ping(NodeId, new Id());
             SendMessage(targetEndPoint, ping);
 
             while (DateTime.Now < waitUntil)
@@ -780,11 +780,11 @@ namespace Kademliath.Core
                 _acceptedStoreRequests[request.ConversationId] = DateTime.Now; // Record that we accepted it
                 SendMessage(sender.NodeEndPoint, new StoreResponse(NodeId, request.ConversationId, true));
             }
-            else if (request.GetPublicationTimeUtc() > _storage.GetPublicationTime(key, valHash)
-                     && request.GetPublicationTimeUtc() < DateTime.Now.ToUniversalTime().Add(_maxClockSkew))
+            else if (request.PublicationUtc > _storage.GetPublicationTime(key, valHash)
+                     && request.PublicationUtc < DateTime.Now.ToUniversalTime().Add(_maxClockSkew))
             {
                 // Update our recorded publication time
-                _storage.Restamp(key, valHash, request.GetPublicationTimeUtc(), ExpireTime);
+                _storage.Restamp(key, valHash, request.PublicationUtc, ExpireTime);
             }
         }
 
@@ -806,11 +806,11 @@ namespace Kademliath.Core
                     // For now just keep it until it expires
 
                     // Don't accept stuff published far in the future
-                    if (request.GetPublicationTimeUtc() < DateTime.Now.ToUniversalTime().Add(_maxClockSkew))
+                    if (request.PublicationTimestampUtc < DateTime.Now.ToUniversalTime().Add(_maxClockSkew))
                     {
                         // We re-hash since we shouldn't trust their hash
                         _storage.Put(request.Key, Id.Hash(request.Data), request.Data,
-                            request.GetPublicationTimeUtc(), ExpireTime);
+                            request.PublicationTimestampUtc, ExpireTime);
                     }
                 }
             }
@@ -832,8 +832,7 @@ namespace Kademliath.Core
                     // Send along the data and remove it from the list
                     var toStore = _sentStoreRequests[response.ConversationId];
                     SendMessage(sender.NodeEndPoint,
-                        new StoreData(NodeId, response.ConversationId, toStore.Key, Id.Hash(toStore.Val), toStore.Val,
-                            toStore.Publication));
+                        new StoreData(NodeId, response.ConversationId, toStore.Key, toStore.Val, toStore.Publication));
                     _sentStoreRequests.Remove(response.ConversationId);
                 }
             }

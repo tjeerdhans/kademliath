@@ -9,7 +9,7 @@ namespace Kademliath.Core.Messages
 	[MessagePackObject]
 	public class Ping : Request
 	{
-		public Ping(Id senderId, Id conversationId = null) : base(senderId, conversationId)
+		public Ping(Id senderId, Id conversationId) : base(senderId, conversationId)
 		{
 		}
 		

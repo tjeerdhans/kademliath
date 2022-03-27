@@ -13,8 +13,7 @@ namespace Kademliath.Core.Messages
     {
         [Key(2)] public Id Key { get; }
         [Key(3)] public Id DataHash { get; }
-
-        private readonly DateTime _publication;
+        [Key(4)] public DateTime PublicationUtc { get;}
 
         /// <summary>
         /// Make a new STORE_QUERY message.
@@ -23,27 +22,15 @@ namespace Kademliath.Core.Messages
         /// <param name="toStore"></param>
         /// <param name="hash">A hash of the data value</param>
         /// <param name="originalPublicationTimestamp"></param>
-        /// <param name="dataSize"></param>
         /// <param name="conversationId"></param>
-        public StoreQuery(Id nodeId, Id toStore, Id hash, DateTime originalPublicationTimestamp, int dataSize,
-            Id conversationId = null) :
+        public StoreQuery(Id nodeId, Id conversationId, Id toStore, Id hash, DateTime originalPublicationTimestamp) :
             base(nodeId, conversationId)
         {
             Key = toStore;
             DataHash = hash;
-            _publication = originalPublicationTimestamp;
-            //_valueSize = dataSize;
+            PublicationUtc = originalPublicationTimestamp.ToUniversalTime();
         }
-
-        /// <summary>
-        /// Get when the data was originally published, in UTC.
-        /// </summary>
-        /// <returns></returns>
-        public DateTime GetPublicationTimeUtc()
-        {
-            return _publication.ToUniversalTime();
-        }
-
+        
         public override string GetName()
         {
             return "STORE_QUERY";

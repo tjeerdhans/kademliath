@@ -10,7 +10,7 @@ namespace Kademliath.Core.Messages.Responses
     [MessagePackObject]
     public class FindValueContactResponse : Response
     {
-        [Key(2)]  public List<Contact> Contacts { get; }
+        [Key(2)] public List<Contact> Contacts { get; }
 
         /// <summary>
         /// Make a new response reporting contacts to try.
@@ -19,8 +19,7 @@ namespace Kademliath.Core.Messages.Responses
         /// <param name="respondingToConversationId"></param>
         /// <param name="closeByContacts"></param>
         public FindValueContactResponse(Id nodeId, Id respondingToConversationId, List<Contact> closeByContacts) : base(
-            nodeId,
-            respondingToConversationId)
+            nodeId, respondingToConversationId)
         {
             Contacts = closeByContacts;
         }

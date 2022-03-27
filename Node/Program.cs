@@ -36,7 +36,7 @@ namespace Kademliath.Node
                 {
                     // store some data
                     var data = new Dictionary<string, byte[]>();
-                    for (int i = 0; i < 10; i++)
+                    for (int i = 0; i < 1; i++)
                     {
                         var key = Guid.NewGuid().ToString();
                         var value = Guid.NewGuid().ToByteArray();
