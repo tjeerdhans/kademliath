@@ -1,5 +1,4 @@
 using System;
-using Kademliath.Core.Messages;
 using Kademliath.Core.Messages.Responses;
 
 namespace Kademliath.Core

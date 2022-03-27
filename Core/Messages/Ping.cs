@@ -1,5 +1,4 @@
-﻿using System;
-using MessagePack;
+﻿using MessagePack;
 
 namespace Kademliath.Core.Messages
 {

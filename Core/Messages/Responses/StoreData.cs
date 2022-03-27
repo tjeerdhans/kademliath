@@ -20,7 +20,6 @@ namespace Kademliath.Core.Messages.Responses
         /// <param name="nodeId"></param>
         /// <param name="respondingToConversationId"></param>
         /// <param name="key"></param>
-        /// <param name="dataHash"></param>
         /// <param name="data"></param>
         /// <param name="originalPublicationTimestampUtc"></param>
         public StoreData(Id nodeId, Id respondingToConversationId, Id key, byte[] data,
@@ -28,7 +27,6 @@ namespace Kademliath.Core.Messages.Responses
         {
             Key = key;
             Data = data;
-            //_dataHash = dataHash;
             PublicationTimestampUtc = originalPublicationTimestampUtc.ToUniversalTime();
         }
 

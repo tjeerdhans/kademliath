@@ -15,7 +15,6 @@ namespace Kademliath.Core
     /// </summary>
     public class Dht
     {
-        public Id NodeId { get; }
         private const string DefaultOverlayUrl = "http://localhost:5000/";
         private const string ListFragment = "nodes";
         private const string RegisterFragment = "nodes";
@@ -55,7 +54,6 @@ namespace Kademliath.Core
         {
             // Make a new node and get port
             _dhtNode = new KademliaNode();
-            NodeId = _dhtNode.NodeId;
             var ourPort = _dhtNode.GetPort();
             Console.WriteLine("We are on UDP port " + ourPort);
 
@@ -65,19 +63,17 @@ namespace Kademliath.Core
             var nodeList = new List<Node>();
             try
             {
-                using (var client = new HttpClient())
+                using var client = new HttpClient();
+                var response = client.GetAsync(overlayUrl + ListFragment).Result;
+                if (response.IsSuccessStatusCode)
                 {
-                    var response = client.GetAsync(overlayUrl + ListFragment).Result;
-                    if (response.IsSuccessStatusCode)
+                    var nodes = response.Content.ReadAsAsync<IEnumerable<Node>>().Result.ToList();
+                    foreach (var node in nodes)
                     {
-                        var nodes = response.Content.ReadAsAsync<IEnumerable<Node>>().Result;
-                        foreach (var node in nodes)
-                        {
-                            Console.WriteLine($"Got node {node.HostAddress}:{node.HostPort}");
-                        }
-
-                        nodeList.AddRange(nodes);
+                        Console.WriteLine($"Got node {node.HostAddress}:{node.HostPort}");
                     }
+
+                    nodeList.AddRange(nodes);
                 }
             }
             catch (Exception)
